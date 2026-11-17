@@ -432,14 +432,9 @@ function crearHojaHistorial_(ss) {
     hoja.getRange(1, 1, 1, n).setValues([COLUMNAS_HISTORIAL.map(function(c) { return c.enc; })]);
     hoja.setFrozenRows(1);
 
-    // Columnas de texto en texto plano
-    COLUMNAS_HISTORIAL.forEach(function(c, i) {
-      if (c.tipo === 'TEXT') {
-        hoja.getRange(2, i + 1, hoja.getMaxRows() - 1, 1).setNumberFormat('@');
-      }
-    });
-
-    hoja.getRange(2, 1, hoja.getMaxRows() - 1, 1).setNumberFormat('dd/mm/yyyy h:mm am/pm');
+    // Lo escrito con SpreadsheetApp se aplica antes de crear la tabla
+    // con la API (si no, se aplicaría después y chocaría con la tabla)
+    SpreadsheetApp.flush();
 
     let comoTabla = false;
 
@@ -480,7 +475,12 @@ function crearHojaHistorial_(ss) {
     }
 
     if (!comoTabla) {
-      // Sin la API: encabezado con formato y listas desplegables
+      // Sin la API: texto plano, fecha, encabezado con formato y listas
+      COLUMNAS_HISTORIAL.forEach(function(c, i) {
+        if (c.tipo === 'TEXT') hoja.getRange(2, i + 1, hoja.getMaxRows() - 1, 1).setNumberFormat('@');
+      });
+      hoja.getRange(2, 1, hoja.getMaxRows() - 1, 1).setNumberFormat('dd/mm/yyyy h:mm am/pm');
+
       hoja.getRange(1, 1, 1, n)
         .setBackground('#84303F').setFontColor('#FFFFFF').setFontWeight('bold');
 
@@ -1002,6 +1002,8 @@ function ponerArchivoEnCelda_(hoja, fila, columna, archivo, textoCorto) {
 
   if (hayApiSheets_()) {
     try {
+      // La fila recién agregada debe estar escrita antes de usar la API
+      SpreadsheetApp.flush();
       Sheets.Spreadsheets.batchUpdate({
         requests: [{
           updateCells: {
@@ -1172,6 +1174,8 @@ function agregarFilaHistorial_(hoja, historial, valores) {
 
         return { userEnteredValue: { stringValue: String(v) } };
       });
+
+      SpreadsheetApp.flush();
 
       const ssId = hoja.getParent().getId();
       const fields = 'userEnteredValue,chipRuns';
