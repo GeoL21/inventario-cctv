@@ -144,6 +144,16 @@ textarea.entrada{min-height:84px;font-size:16px;font-weight:500;resize:vertical}
 .btn.prin{flex:1;background:var(--vino);color:#fff}
 .btn.sec{background:var(--tarjeta2);color:var(--tinta)}
 .btn.tono{background:var(--cont-suave);color:var(--cont)}
+.btn.borde{background:#fff;color:var(--vino);box-shadow:inset 0 0 0 2px var(--vino)}
+.novedad{width:100%;text-align:left;display:flex;gap:12px;align-items:flex-start;padding:14px 18px;border-radius:20px;background:var(--ambar);color:var(--ambar-txt);font-size:16px;font-weight:600}
+.novedad.grave{background:var(--rojo);color:var(--rojo-txt)}
+.novedad b{display:block;font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+.novedad em{font-style:normal;font-weight:500}
+.t-nov{display:flex;gap:4px;align-items:flex-start;font-size:14px;font-weight:700;color:var(--ambar-txt);margin-top:2px}
+.fila.urgente .t-nov{color:var(--rojo-txt)}
+.dato .lapiz{color:var(--apagado);font-size:18px;vertical-align:-3px}
+.dato .vacio-dato{color:var(--vino);font-weight:700}
+button.dato{width:100%;text-align:left}
 .btn.mini{min-height:44px;font-size:15px;padding:0 16px;border-radius:22px}
 .btn:disabled{opacity:.6}
 @media (hover:hover){.btn.prin:hover{background:var(--vino-osc)}.btn.sec:hover{background:var(--linea)}}
@@ -287,9 +297,9 @@ textarea.entrada{min-height:84px;font-size:16px;font-weight:500;resize:vertical}
 </div>
 
 <nav class="nav" aria-label="Secciones">
-  <button type="button" data-vista="vRegistrar"><span class="pil"><span class="ms">add_a_photo</span></span>Registrar</button>
-  <button type="button" data-vista="vBuscar"><span class="pil"><span class="ms">search</span></span>Buscar</button>
   <button type="button" data-vista="vResumen"><span class="pil"><span class="ms">bar_chart</span></span>Resumen</button>
+  <button type="button" data-vista="vBuscar"><span class="pil"><span class="ms">search</span></span>Buscar</button>
+  <button type="button" data-vista="vRegistrar"><span class="pil"><span class="ms">add_a_photo</span></span>Registrar</button>
 </nav>
 
 <main class="principal">

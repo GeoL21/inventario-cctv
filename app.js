@@ -969,6 +969,7 @@ function pintarBuscar() {
       return '<button type="button" class="fila toque ' + claseFila(r) + (S.sel === r.id ? ' sel' : '') + '" data-camara="' + esc(r.id) + '">' +
         '<div class="txt"><div class="t1"><span class="num">' + esc(r.id) + '</span>' + tagEstado(r.estado) + '</div>' +
         '<div class="t2">' + esc([r.nivel, r.areaZona].filter(String).join(' · ')) + '</div>' +
+        (tieneNovedad(r) ? '<div class="t-nov">' + ico('warning', 's lleno') + esc(vacio(r.observaciones) ? 'Novedad sin describir' : r.observaciones) + '</div>' : '') +
         '<div class="t3">' + esc([r.edificacion, r.tipoCamara].filter(String).join(' · ')) +
         ' · Hoja de vida ' + pct + ' %</div></div>' +
         ico('chevron_right') + '</button>';
@@ -1125,6 +1126,19 @@ function htmlFotoCamara(r) {
     (navigator.onLine === false ? ' La foto se descarga cuando haya señal.' : ' Cargando la foto…') + '</p></div>';
 }
 
+/** ¿La cámara tiene una novedad que mostrar? (todo estado distinto de Operativa) */
+function tieneNovedad(d) {
+  return !vacio(d.estado) && !igual(d.estado, 'Operativa');
+}
+
+function htmlNovedad(d) {
+  if (!tieneNovedad(d)) return '';
+  const grave = igual(d.estado, 'Fuera de servicio');
+  return '<button type="button" class="novedad toque' + (grave ? ' grave' : '') + '" data-accion="editarCampo" data-k="observaciones">' +
+    ico(grave ? 'error' : 'warning', 'lleno') + '<span><b>Novedad</b>' +
+    (vacio(d.observaciones) ? '<em>No se escribió cuál es. Toca para agregarla.</em>' : esc(d.observaciones)) + '</span></button>';
+}
+
 function campoDe(k) { return CAMPOS.filter(function(c) { return c.k === k; })[0]; }
 
 function htmlFicha(r) {
@@ -1133,42 +1147,49 @@ function htmlFicha(r) {
   const fallas = mttos.filter(function(m) { return m.huboFalla; });
   const av = avanceHV(d);
 
+  // Toda fila con dato propio se puede tocar para cambiarlo (sin señal)
   function fila(k, etiqueta, valor) {
     const falta = COMPLETABLES.indexOf(k) !== -1 && !cumple(CRITERIOS.filter(function(c) { return c.k === k; })[0] || { k: k }, d);
     const pend = d.porSubir[k] ? ' <span class="tag av">' + ico('cloud_upload') + 'por subir</span>' : '';
 
     if (falta) {
-      return '<button type="button" class="dato falta toque" data-accion="completar"><span>' + esc(etiqueta) + '</span>' +
+      return '<button type="button" class="dato falta toque" data-accion="editarCampo" data-k="' + k + '"><span>' + esc(etiqueta) + '</span>' +
         '<span>' + (vacio(valor) ? '' : esc(valor) + ' · ') + 'Falta ' + ico('edit', 's') + '</span></button>';
+    }
+    if (k && campoDe(k)) {
+      return '<button type="button" class="dato toque" data-accion="editarCampo" data-k="' + k + '"><span>' + esc(etiqueta) + '</span>' +
+        '<span>' + (vacio(valor) ? '<span class="vacio-dato">Agregar</span>' : esc(valor)) + pend + ' ' + ico('edit', 's lapiz') + '</span></button>';
     }
     return '<div class="dato"><span>' + esc(etiqueta) + '</span><span>' + (vacio(valor) ? '—' : esc(valor)) + pend + '</span></div>';
   }
 
   const tecnicos = [
-    fila('', 'Tipo de cámara', d.tipoCamara),
+    fila('tipoCamara', 'Tipo de cámara', d.tipoCamara),
     fila('marca', 'Marca', d.marca),
-    fila('', 'Modelo', d.modelo),
+    fila('modelo', 'Modelo', d.modelo),
     fila('serial', 'Serial', d.serial),
     fila('ip', 'IP', d.ip),
     fila('nvr', 'NVR / DVR', d.nvr),
     fila('canal', 'Canal', d.canal),
-    fila('', 'Visión nocturna · audio', [d.visionNocturna, d.audio].filter(String).join(' · ')),
+    fila('visionNocturna', 'Visión nocturna', d.visionNocturna),
+    fila('audio', 'Audio', d.audio),
     fila('estadoFisico', 'Estado físico', d.estadoFisico),
     fila('estadoCableado', 'Cableado', d.estadoCableado)
   ].join('');
 
   const ubicacion = [
-    fila('', 'Área / Zona', d.areaZona),
-    fila('', 'Tipo de ubicación', d.tipoUbicacion),
-    fila('', 'Subzona', d.subzona),
-    fila('', 'Dependencia', d.dependencia),
-    fila('', 'Referencia', d.referencia)
+    fila('areaZona', 'Área / Zona', d.areaZona),
+    fila('tipoUbicacion', 'Tipo de ubicación', d.tipoUbicacion),
+    fila('subzona', 'Subzona', d.subzona),
+    fila('dependencia', 'Dependencia', d.dependencia),
+    fila('referencia', 'Referencia', d.referencia)
   ].join('');
 
   const inventario = [
-    fila('', 'Próximo mantenimiento', fechaCorta(d.proximoMantenimiento)),
-    fila('', 'Responsable', d.responsable),
-    fila('', 'Observaciones', d.observaciones),
+    fila('proximoMantenimiento', 'Próximo mantenimiento', fechaCorta(d.proximoMantenimiento)),
+    fila('responsable', 'Responsable', d.responsable),
+    fila('estado', 'Estado', d.estado),
+    fila('observaciones', 'Observaciones / novedad', d.observaciones),
     fila('', 'Inventariada por', [d.registradoPor, fecha12(d.fechaRegistro)].filter(String).join(' · '))
   ].join('');
 
@@ -1193,6 +1214,7 @@ function htmlFicha(r) {
   return '<div class="vista" style="padding:0">' +
     htmlCabDetalle(esc(r.id), esc([d.sede, String(d.edificacion).replace(d.sede + ' - ', ''), d.nivel].filter(String).join(' · ')), 'lista') +
     '<div>' + tagEstado(d.estado) + '</div>' +
+    htmlNovedad(d) +
     avance +
     htmlFotoCamara(r) +
     '<div class="secc"><span>Datos técnicos</span><button type="button" class="link" data-accion="editar">' + ico('edit', 's') + 'Editar todo</button></div>' +
@@ -1213,14 +1235,14 @@ function htmlFicha(r) {
  * COMPLETAR LO QUE FALTA (funciona sin señal)
  ***********************/
 
-function abrirCompletar() {
+function abrirCompletar(soloClave) {
   const r = camaraSel();
   if (!r) return;
   const d = datosDe(r);
-  const claves = avanceHV(d).completables;
+  const claves = soloClave ? [soloClave] : avanceHV(d).completables;
   if (!claves.length) return;
 
-  S.cp = { claves: claves, errores: {} };
+  S.cp = { claves: claves, errores: {}, uno: !!soloClave };
   claves.forEach(function(k) { S.cp[k] = igual(d[k], 'No verificado') ? '' : (d[k] || ''); });
   S.modo = 'completar';
   pintarDetalle();
@@ -1230,16 +1252,19 @@ function abrirCompletar() {
 function htmlCompletar(r) {
   const campos = S.cp.claves.map(function(k) {
     const c = Object.assign({}, campoDe(k));
-    c.secc = 'Datos que faltan';
+    c.secc = S.cp.uno ? c.l : 'Datos que faltan';
+    c.req = false;
     // En el cableado y el estado físico no se ofrece "No verificado"
-    if (c.revisado || k === 'estadoFisico' || k === 'estadoCableado') c.o = ['Bueno', 'Regular', 'Malo'];
+    if (k === 'estadoFisico' || k === 'estadoCableado') c.o = ['Bueno', 'Regular', 'Malo'];
     return c;
   });
 
+  const titulo = S.cp.uno ? 'Cambiar ' + campos[0].l.toLowerCase() : 'Completar datos';
+
   return '<div class="vista" style="padding:0">' +
-    htmlCabDetalle('Completar datos', esc(r.id) + ' · se guarda aunque no haya señal', 'ficha') +
-    htmlCampos(campos, S.cp, S.cp.errores, 'c_') +
-    '<p class="nota">Llena lo que tengas a mano; lo que dejes vacío sigue apareciendo como "Falta".</p>' +
+    htmlCabDetalle(esc(titulo), esc(r.id) + ' · se guarda aunque no haya señal', 'ficha') +
+    htmlCampos(campos, S.cp, S.cp.errores, 'c_').replace(/<span class="opc">opcional<\/span>/g, '') +
+    (S.cp.uno ? '' : '<p class="nota">Llena lo que tengas a mano; lo que dejes vacío sigue apareciendo como "Falta".</p>') +
     '</div>';
 }
 
@@ -1253,14 +1278,16 @@ async function guardarCompletar() {
   const datos = { uuid: nuevoUuid(), fechaCaptura: Date.now(), id: r.id };
   let cuantos = 0;
 
+  const antes = datosDe(r);
+
   S.cp.claves.forEach(function(k) {
     const v = String(S.cp[k] || '').trim();
-    if (v) { datos[k] = v; cuantos++; }
+    if (v && v !== String(antes[k] || '').trim()) { datos[k] = v; cuantos++; }
   });
 
   if (!cuantos) {
     sonarFalta();
-    toast('error', 'No llenaste ningún dato.');
+    toast('error', S.cp.uno ? 'No cambiaste nada.' : 'No llenaste ningún dato.');
     return;
   }
 
@@ -1382,6 +1409,19 @@ async function construirPdfHV(r) {
   doc.text((d.estado || 'Sin estado') + '  ·  Hoja de vida ' + av.pct + ' %', W - M, 36, { align: 'right' });
 
   let y = 40;
+
+  if (tieneNovedad(d)) {
+    const texto = doc.splitTextToSize('Novedad: ' + (vacio(d.observaciones) ? 'sin describir' : d.observaciones), W - 2 * M - 6);
+    const alto = 4 + texto.length * 4;
+    const grave = igual(d.estado, 'Fuera de servicio');
+    if (grave) doc.setFillColor(252, 228, 225); else doc.setFillColor(255, 243, 220);
+    doc.rect(M, y - 1, W - 2 * M, alto, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    if (grave) doc.setTextColor(179, 38, 30); else doc.setTextColor(122, 74, 0);
+    doc.text(texto, M + 3, y + 3);
+    y += alto + 2;
+  }
 
   let foto = await fotoDeCamara(r.id);
   if (!foto) foto = null;
@@ -1962,7 +2002,7 @@ function pintarAccion() {
         : '<button type="button" class="btn prin" data-accion="guardarCamara">' + ico('check') + 'Guardar cámara</button>');
   } else if (S.vista === 'vBuscar' && camaraSel()) {
     if (S.modo === 'ficha') {
-      html = '<button type="button" class="btn sec" data-accion="pdf">' + ico('picture_as_pdf') + 'PDF</button>' +
+      html = '<button type="button" class="btn borde" data-accion="pdf">' + ico('picture_as_pdf') + 'PDF</button>' +
         '<button type="button" class="btn prin" data-accion="mtto">' + ico('build') +
         '<span class="largo">Registrar mantenimiento</span><span class="corto">Mantenimiento</span></button>';
     } else if (S.modo === 'mtto') {
@@ -1989,7 +2029,7 @@ const TITULOS = { vRegistrar: 'Registrar cámara', vBuscar: 'Buscar cámara', vR
 function mostrarVista(id) {
   S.vista = id;
 
-  ['vRegistrar', 'vBuscar', 'vResumen'].forEach(function(v) { $(v).classList.toggle('oculto', v !== id); });
+  ['vResumen', 'vBuscar', 'vRegistrar'].forEach(function(v) { $(v).classList.toggle('oculto', v !== id); });
 
   document.querySelectorAll('.nav button').forEach(function(b) {
     if (b.dataset.vista === id) b.setAttribute('aria-current', 'page');
@@ -2054,6 +2094,7 @@ function enlazarEventos() {
       case 'mtto': abrirMtto(); break;
       case 'editar': abrirEditar(); break;
       case 'completar': abrirCompletar(); break;
+      case 'editarCampo': abrirCompletar(b.dataset.k); break;
       case 'guardarCompletar': guardarCompletar(); break;
       case 'pdf': pdfHojaDeVida(); break;
       case 'guardarMtto': guardarMtto(); break;
@@ -2243,7 +2284,7 @@ async function iniciar() {
 
   await cargarCopiaLocal();
   await pintarEstado();
-  mostrarVista('vRegistrar');
+  mostrarVista('vResumen');
 
   if (!urlConfigurada()) {
     toast('error', 'Falta configurar la app: pega la URL de Apps Script en config.js.', 10000);
