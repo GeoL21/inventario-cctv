@@ -9,7 +9,7 @@
  * VERSION para que los celulares renueven la copia.
  *****************************************************************/
 
-const VERSION = 'cctv-v3';
+const VERSION = 'cctv-v4';
 const FUENTES = 'cctv-fuentes-v1';
 
 const ARCHIVOS = [
@@ -21,7 +21,9 @@ const ARCHIVOS = [
   'logo-crc.jpg',
   'icon-192.png',
   'icon-512.png',
-  'icon-maskable-512.png'
+  'icon-maskable-512.png',
+  'lib/jspdf.umd.min.js',
+  'lib/jspdf.plugin.autotable.min.js'
 ];
 
 self.addEventListener('install', function(event) {

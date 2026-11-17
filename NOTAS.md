@@ -25,6 +25,13 @@ El registro se hace desde celulares. Al jefe de monitoreo le pidieron la hoja de
   Código y versión del formato: constantes `FORMATO_CODIGO` y `FORMATO_VERSION` del script.
 - Requiere el servicio avanzado "Google Sheets API" (tabla del historial y fotos como chip).
 
+## Hoja de vida en la app (17 nov 2026)
+- Al tocar una cámara en Buscar se abre su hoja de vida: avance (8 puntos: marca, serial, IP, NVR / DVR,
+  canal, estado físico, cableado revisado y al menos un mantenimiento), datos, mantenimientos y fallas.
+- Lo que falta sale en rojo; "Completar lo que falta" guarda en el celular sin señal (pendiente tipo
+  `actualizar`, que usa la acción `actualizar` del servidor solo con esos campos).
+- Botón PDF: se arma en el celular con jsPDF (`lib/`), se comparte en el celular y se descarga en el PC.
+
 ## Reglas que no se cambian
 - Los cambios no deben romper la app ni la base de datos existente.
 - Funciona sin señal: registrar cámaras, buscar, ver la ficha y registrar mantenimientos.

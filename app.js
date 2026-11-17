@@ -233,9 +233,10 @@ const S = {
   sede: '',
   filtro: '',
   sel: null,          // ID de la cámara abierta
-  modo: 'ficha',      // ficha | mtto | editar
+  modo: 'ficha',      // ficha (hoja de vida) | mtto | editar | completar
   mt: null,           // formulario de mantenimiento
   ed: null,           // formulario de edición
+  cp: null,           // completar lo que falta
   edFoto: '',
   // Resumen
   sedeResumen: ''
@@ -595,7 +596,7 @@ async function serialAceptado(serial) {
 
   if (!donde) {
     (await listarPendientes()).some(function(p) {
-      if (!esMtto(p) && limpiarSerial(p.datos.serial) === buscado) {
+      if (!esMtto(p) && p.tipo !== 'actualizar' && limpiarSerial(p.datos.serial) === buscado) {
         donde = 'una cámara pendiente por subir (' + p.datos.nivel + ', ' + p.datos.areaZona + ')';
         return true;
       }
@@ -687,7 +688,8 @@ async function subirPendientes() {
       intentados[p.uuid] = true;
 
       try {
-        const r = await llamar(esMtto(p) ? 'mantenimiento' : 'registrar', { datos: p.datos }, 120000);
+        const accion = esMtto(p) ? 'mantenimiento' : (p.tipo === 'actualizar' ? 'actualizar' : 'registrar');
+        const r = await llamar(accion, { datos: p.datos }, 120000);
         await borrarPendiente(p.uuid);
         idsSubidos[p.uuid] = r.id || 'ok';
         delete erroresSubida[p.uuid];
@@ -763,11 +765,14 @@ async function pintarEstado() {
 
   lista.innerHTML = pendientesCache.map(function(p) {
     const d = p.datos;
+    const act = p.tipo === 'actualizar';
     const titulo = esMtto(p)
       ? 'Mantenimiento · ' + d.idCamara + ' · ' + d.tipo
-      : 'Cámara nueva · ' + d.nivel + ' · ' + d.areaZona;
-    const sub = fechaHora(d.fechaCaptura) + ' · ' + (esMtto(p) ? d.tecnico : d.registradoPor);
-    return '<div class="mtto pend"><div class="ico">' + ico(esMtto(p) ? 'build' : 'videocam') + '</div><div class="txt">' +
+      : (act ? 'Datos de ' + d.id + ' · ' + Object.keys(d).filter(function(k) { return ['uuid', 'fechaCaptura', 'id'].indexOf(k) === -1; })
+          .map(function(k) { return (campoDe(k) || { l: k }).l; }).join(', ')
+        : 'Cámara nueva · ' + d.nivel + ' · ' + d.areaZona);
+    const sub = fechaHora(d.fechaCaptura) + (esMtto(p) ? ' · ' + d.tecnico : (act ? '' : ' · ' + d.registradoPor));
+    return '<div class="mtto pend"><div class="ico">' + ico(esMtto(p) ? 'build' : (act ? 'edit' : 'videocam')) + '</div><div class="txt">' +
       '<b>' + esc(titulo) + '</b><div class="d">' + esc(sub) + '</div>' +
       (p.error ? '<div class="tags"><span class="tag mal">' + ico('error') + 'Rechazado: ' + esc(p.error) + '</span></div>' : '') +
       '</div><button type="button" class="btn-red" aria-label="Descartar" data-descartar="' + esc(p.uuid) + '">' + ico('delete') + '</button></div>';
@@ -898,8 +903,9 @@ const FILTROS = [
   ['', 'Todas', function() { return true; }],
   ['novedad', 'Con novedad', function(r) { return igual(r.estado, 'Operativa con novedad') || igual(r.estado, 'Intermitente') || igual(r.estado, 'En mantenimiento'); }],
   ['fuera', 'Fuera de servicio', function(r) { return igual(r.estado, 'Fuera de servicio'); }],
-  ['sinmtto', 'Sin mantenimiento', function(r) { return !ultimoMtto(r); }],
-  ['conmtto', 'Con mantenimiento', function(r) { return !!ultimoMtto(r); }]
+  ['sinmtto', 'Sin revisión inicial', function(r) { return !ultimoMtto(r); }],
+  ['incompleta', 'Hoja de vida incompleta', function(r) { return avanceHV(datosDe(r)).pct < 100; }],
+  ['completa', 'Hoja de vida completa', function(r) { return avanceHV(datosDe(r)).pct === 100; }]
 ];
 
 function claseFila(r) {
@@ -959,12 +965,12 @@ function pintarBuscar() {
     lista.innerHTML = '<div class="vacio"><b>No hay cámaras con ese filtro</b>Prueba con otra palabra o quita el filtro.</div>';
   } else {
     lista.innerHTML = res.slice(0, MAX).map(function(r) {
-      const ult = ultimoMtto(r);
+      const pct = avanceHV(datosDe(r)).pct;
       return '<button type="button" class="fila toque ' + claseFila(r) + (S.sel === r.id ? ' sel' : '') + '" data-camara="' + esc(r.id) + '">' +
         '<div class="txt"><div class="t1"><span class="num">' + esc(r.id) + '</span>' + tagEstado(r.estado) + '</div>' +
         '<div class="t2">' + esc([r.nivel, r.areaZona].filter(String).join(' · ')) + '</div>' +
         '<div class="t3">' + esc([r.edificacion, r.tipoCamara].filter(String).join(' · ')) +
-        ' · ' + (ult ? 'Últ. mant. ' + esc(ult) : 'Sin mantenimiento') + '</div></div>' +
+        ' · Hoja de vida ' + pct + ' %</div></div>' +
         ico('chevron_right') + '</button>';
     }).join('');
   }
@@ -1014,6 +1020,7 @@ function pintarDetalle() {
 
   if (S.modo === 'mtto') caja.innerHTML = htmlMtto(r);
   else if (S.modo === 'editar') caja.innerHTML = htmlEditar(r);
+  else if (S.modo === 'completar') caja.innerHTML = htmlCompletar(r);
   else caja.innerHTML = htmlFicha(r);
 
   pintarAccion();
@@ -1025,49 +1032,457 @@ function htmlCabDetalle(titulo, sub, volver) {
     '<div class="txt"><h2>' + titulo + '</h2><small>' + sub + '</small></div></div>';
 }
 
-function htmlFicha(r) {
-  const mttos = mttosDe(r.id);
+/***********************
+ * HOJA DE VIDA
+ * Qué cuenta para que la hoja de vida esté completa.
+ ***********************/
 
-  function dato(k, v) {
-    return '<div class="dato"><span>' + esc(k) + '</span><span>' + (vacio(v) ? '—' : esc(v)) + '</span></div>';
+const CRITERIOS = [
+  { k: 'marca', l: 'Marca' },
+  { k: 'serial', l: 'Serial' },
+  { k: 'ip', l: 'IP' },
+  { k: 'nvr', l: 'NVR / DVR' },
+  { k: 'canal', l: 'Canal' },
+  { k: 'estadoFisico', l: 'Estado físico', revisado: true },
+  { k: 'estadoCableado', l: 'Cableado', revisado: true },
+  { k: 'mtto', l: 'Revisión inicial' }
+];
+
+// Datos que se pueden completar desde la hoja de vida (sin señal)
+const COMPLETABLES = ['marca', 'serial', 'ip', 'nvr', 'canal', 'estadoFisico', 'estadoCableado'];
+
+function cumple(c, d) {
+  if (c.k === 'mtto') return !!ultimoMtto(d);
+  if (c.revisado) return !vacio(d[c.k]) && !igual(d[c.k], 'No verificado');
+  return !vacio(d[c.k]);
+}
+
+/** { pct, faltan: [criterios], completables: [claves] } */
+function avanceHV(d) {
+  const faltan = CRITERIOS.filter(function(c) { return !cumple(c, d); });
+  return {
+    pct: Math.round((CRITERIOS.length - faltan.length) * 100 / CRITERIOS.length),
+    faltan: faltan,
+    completables: faltan.map(function(c) { return c.k; }).filter(function(k) { return COMPLETABLES.indexOf(k) !== -1; })
+  };
+}
+
+/** Datos de la cámara con los cambios que aún no se han subido. */
+function datosDe(r) {
+  const d = Object.assign({}, r);
+  d.porSubir = {};
+  pendientesCache.filter(function(p) { return p.tipo === 'actualizar' && p.datos.id === r.id; })
+    .forEach(function(p) {
+      Object.keys(p.datos).forEach(function(k) {
+        if (['uuid', 'fechaCaptura', 'id'].indexOf(k) !== -1) return;
+        d[k] = p.datos[k];
+        d.porSubir[k] = true;
+      });
+    });
+  return d;
+}
+
+function campoDe(k) { return CAMPOS.filter(function(c) { return c.k === k; })[0]; }
+
+function htmlFicha(r) {
+  const d = datosDe(r);
+  const mttos = mttosDe(r.id);
+  const fallas = mttos.filter(function(m) { return m.huboFalla; });
+  const av = avanceHV(d);
+
+  function fila(k, etiqueta, valor) {
+    const falta = COMPLETABLES.indexOf(k) !== -1 && !cumple(CRITERIOS.filter(function(c) { return c.k === k; })[0] || { k: k }, d);
+    const pend = d.porSubir[k] ? ' <span class="tag av">' + ico('cloud_upload') + 'por subir</span>' : '';
+
+    if (falta) {
+      return '<button type="button" class="dato falta toque" data-accion="completar"><span>' + esc(etiqueta) + '</span>' +
+        '<span>' + (vacio(valor) ? '' : esc(valor) + ' · ') + 'Falta ' + ico('edit', 's') + '</span></button>';
+    }
+    return '<div class="dato"><span>' + esc(etiqueta) + '</span><span>' + (vacio(valor) ? '—' : esc(valor)) + pend + '</span></div>';
   }
 
-  const datos = [
-    dato('Área / Zona', r.areaZona),
-    dato('Tipo de ubicación', r.tipoUbicacion),
-    dato('Subzona', r.subzona),
-    dato('Dependencia', r.dependencia),
-    dato('Tipo de cámara', r.tipoCamara),
-    dato('Marca · modelo', [r.marca, r.modelo].filter(String).join(' · ')),
-    dato('Serial', r.serial),
-    dato('Visión nocturna · audio', [r.visionNocturna, r.audio].filter(String).join(' · ')),
-    dato('IP', r.ip),
-    dato('NVR / DVR · canal', [r.nvr, r.canal].filter(String).join(' · ')),
-    dato('Estado físico', r.estadoFisico),
-    dato('Cableado', r.estadoCableado),
-    dato('Próximo mantenimiento', fechaCorta(r.proximoMantenimiento)),
-    dato('Responsable', r.responsable),
-    dato('Observaciones', r.observaciones),
-    dato('Inventariada por', [r.registradoPor, fecha12(r.fechaRegistro)].filter(String).join(' · '))
+  const tecnicos = [
+    fila('', 'Tipo de cámara', d.tipoCamara),
+    fila('marca', 'Marca', d.marca),
+    fila('', 'Modelo', d.modelo),
+    fila('serial', 'Serial', d.serial),
+    fila('ip', 'IP', d.ip),
+    fila('nvr', 'NVR / DVR', d.nvr),
+    fila('canal', 'Canal', d.canal),
+    fila('', 'Visión nocturna · audio', [d.visionNocturna, d.audio].filter(String).join(' · ')),
+    fila('estadoFisico', 'Estado físico', d.estadoFisico),
+    fila('estadoCableado', 'Cableado', d.estadoCableado)
   ].join('');
 
-  const faltan = [['IP', r.ip], ['NVR / DVR', r.nvr], ['canal', r.canal], ['serial', r.serial]]
-    .filter(function(p) { return vacio(p[1]); }).map(function(p) { return p[0]; });
+  const ubicacion = [
+    fila('', 'Área / Zona', d.areaZona),
+    fila('', 'Tipo de ubicación', d.tipoUbicacion),
+    fila('', 'Subzona', d.subzona),
+    fila('', 'Dependencia', d.dependencia),
+    fila('', 'Referencia', d.referencia)
+  ].join('');
 
-  const lista = mttos.length ? mttos.map(htmlMttoFila).join('') :
-    '<div class="vacio"><b>Aún no tiene mantenimientos</b>El primero que registres será su revisión inicial.</div>';
+  const inventario = [
+    fila('', 'Próximo mantenimiento', fechaCorta(d.proximoMantenimiento)),
+    fila('', 'Responsable', d.responsable),
+    fila('', 'Observaciones', d.observaciones),
+    fila('', 'Inventariada por', [d.registradoPor, fecha12(d.fechaRegistro)].filter(String).join(' · '))
+  ].join('');
+
+  const avance =
+    '<div class="tarjeta avance-hv">' +
+      '<div class="linea"><b>Hoja de vida ' + av.pct + ' %</b>' + (av.faltan.length ? '<span class="nota" style="margin:0">' + (CRITERIOS.length - av.faltan.length) + ' de ' + CRITERIOS.length + '</span>' : chipListo()) + '</div>' +
+      '<div class="bar"><i style="width:' + av.pct + '%"></i></div>' +
+      '<p class="ayuda">' + (av.faltan.length ? 'Falta: ' + esc(av.faltan.map(function(c) { return c.l; }).join(', ')) : 'Tiene todos los datos y al menos un mantenimiento.') + '</p>' +
+      (av.completables.length ? '<button type="button" class="btn tono mini" style="margin-top:10px;width:100%" data-accion="completar">' + ico('edit') + 'Completar lo que falta</button>' : '') +
+    '</div>';
+
+  const listaMttos = mttos.length ? mttos.map(htmlMttoFila).join('') :
+    '<div class="vacio"><b>Sin mantenimientos</b>La primera vez que la revisen queda como revisión inicial.' +
+    '<button type="button" class="btn prin mini" style="margin-top:12px;width:100%" data-accion="mtto">' + ico('build') + 'Registrar revisión inicial</button></div>';
+
+  const listaFallas = fallas.length ? fallas.map(function(m) {
+    return '<div class="dato"><span>' + esc(m.fecha.split(' ')[0]) + '<br><small>' + esc(m.tecnico) + '</small></span><span>' +
+      esc(m.falla) + (m.repuesto ? '<br><small>Repuesto: ' + esc(m.repuesto) + '</small>' : '') +
+      (m.diasFuera !== '' && m.diasFuera !== undefined ? '<br><small>' + esc(m.diasFuera) + ' días fuera</small>' : '') + '</span></div>';
+  }).join('') : '<div class="dato"><span>Sin fallas registradas</span><span></span></div>';
 
   return '<div class="vista" style="padding:0">' +
-    htmlCabDetalle(esc(r.id), esc([r.sede, r.edificacion.replace(r.sede + ' - ', ''), r.nivel].filter(String).join(' · ')), 'lista') +
-    '<div>' + tagEstado(r.estado) + ' ' +
-      (mttos.length ? '<span class="tag rosa">' + ico('history') + mttos.length + (mttos.length === 1 ? ' registro' : ' registros') + '</span>'
-                    : '<span class="tag arena">' + ico('build') + 'Sin mantenimiento</span>') + '</div>' +
-    (faltan.length ? '<p class="nota">Para la hoja de vida falta: ' + esc(faltan.join(', ')) + '. Complétalo en "Editar datos".</p>' : '') +
-    '<div class="secc"><span>Historial</span><span class="opc">' + (mttos.length ? 'del más reciente al más antiguo' : '') + '</span></div>' +
-    '<div class="lista">' + lista + '</div>' +
-    '<div class="secc"><span>Datos de la cámara</span></div>' +
-    '<div class="grupo">' + datos + '</div>' +
+    htmlCabDetalle(esc(r.id), esc([d.sede, String(d.edificacion).replace(d.sede + ' - ', ''), d.nivel].filter(String).join(' · ')), 'lista') +
+    '<div>' + tagEstado(d.estado) + '</div>' +
+    avance +
+    '<div class="secc"><span>Datos técnicos</span><button type="button" class="link" data-accion="editar">' + ico('edit', 's') + 'Editar todo</button></div>' +
+    '<div class="grupo">' + tecnicos + '</div>' +
+    '<div class="secc"><span>Mantenimientos (' + mttos.length + ')</span><span class="opc">' + (mttos.length ? 'más reciente primero' : '') + '</span></div>' +
+    '<div class="lista">' + listaMttos + '</div>' +
+    '<div class="secc"><span>Fallas y reparaciones (' + fallas.length + ')</span></div>' +
+    '<div class="grupo">' + listaFallas + '</div>' +
+    '<div class="secc"><span>Ubicación</span></div>' +
+    '<div class="grupo">' + ubicacion + '</div>' +
+    '<div class="secc"><span>Inventario</span></div>' +
+    '<div class="grupo">' + inventario + '</div>' +
     '</div>';
+}
+
+
+/***********************
+ * COMPLETAR LO QUE FALTA (funciona sin señal)
+ ***********************/
+
+function abrirCompletar() {
+  const r = camaraSel();
+  if (!r) return;
+  const d = datosDe(r);
+  const claves = avanceHV(d).completables;
+  if (!claves.length) return;
+
+  S.cp = { claves: claves, errores: {} };
+  claves.forEach(function(k) { S.cp[k] = igual(d[k], 'No verificado') ? '' : (d[k] || ''); });
+  S.modo = 'completar';
+  pintarDetalle();
+  window.scrollTo(0, 0);
+}
+
+function htmlCompletar(r) {
+  const campos = S.cp.claves.map(function(k) {
+    const c = Object.assign({}, campoDe(k));
+    c.secc = 'Datos que faltan';
+    // En el cableado y el estado físico no se ofrece "No verificado"
+    if (c.revisado || k === 'estadoFisico' || k === 'estadoCableado') c.o = ['Bueno', 'Regular', 'Malo'];
+    return c;
+  });
+
+  return '<div class="vista" style="padding:0">' +
+    htmlCabDetalle('Completar datos', esc(r.id) + ' · se guarda aunque no haya señal', 'ficha') +
+    htmlCampos(campos, S.cp, S.cp.errores, 'c_') +
+    '<p class="nota">Llena lo que tengas a mano; lo que dejes vacío sigue apareciendo como "Falta".</p>' +
+    '</div>';
+}
+
+async function guardarCompletar() {
+  if (guardando) return;
+  const r = camaraSel();
+  if (!r || !S.cp) return;
+
+  prepararSonido();
+
+  const datos = { uuid: nuevoUuid(), fechaCaptura: Date.now(), id: r.id };
+  let cuantos = 0;
+
+  S.cp.claves.forEach(function(k) {
+    const v = String(S.cp[k] || '').trim();
+    if (v) { datos[k] = v; cuantos++; }
+  });
+
+  if (!cuantos) {
+    sonarFalta();
+    toast('error', 'No llenaste ningún dato.');
+    return;
+  }
+
+  guardando = true;
+
+  try {
+    await guardarPendiente({ uuid: datos.uuid, tipo: 'actualizar', datos: datos, intentos: 0 });
+    S.cp = null;
+    S.modo = 'ficha';
+    await pintarEstado();
+    pintarDetalle();
+    window.scrollTo(0, 0);
+    sonarListo();
+    toast('cloud_upload', 'Datos guardados en el celular. Subiendo…');
+
+    const res = await sincronizar();
+
+    if (res.ids[datos.uuid]) toast('cloud_done', 'Datos de ' + r.id + ' guardados en la hoja.', 5000);
+    else if (res.errores[datos.uuid]) { sonarError(); toast('error', 'El servidor los rechazó: ' + res.errores[datos.uuid], 8000); }
+    else toast('cloud_off', 'Sin señal: quedaron en este celular y se subirán solos cuando vuelva la conexión.', 6000);
+
+    pintarVista();
+  } catch (e) {
+    sonarError();
+    toast('error', 'No se pudo guardar en el celular: ' + e.message, 8000);
+  } finally {
+    guardando = false;
+  }
+}
+
+
+/***********************
+ * PDF DE LA HOJA DE VIDA (se arma en el celular)
+ ***********************/
+
+function cargarScript(src) {
+  return new Promise(function(resolve, reject) {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = function() { reject(new Error('No se pudo cargar el generador de PDF. Abre la app una vez con señal.')); };
+    document.head.appendChild(s);
+  });
+}
+
+async function cargarLibreriasPdf() {
+  if (!(window.jspdf && window.jspdf.jsPDF)) await cargarScript('lib/jspdf.umd.min.js');
+  const J = window.jspdf && window.jspdf.jsPDF;
+  if (!J) throw new Error('No se pudo cargar el generador de PDF.');
+  if (!J.API.autoTable) {
+    await cargarScript('lib/jspdf.plugin.autotable.min.js');
+    if (!J.API.autoTable && typeof window.applyPlugin === 'function') window.applyPlugin(J);
+  }
+  if (!J.API.autoTable) throw new Error('No se pudo cargar el generador de tablas del PDF.');
+}
+
+let logoCache = null;
+
+async function logoPdf() {
+  if (logoCache) return logoCache;
+  try {
+    const blob = await (await fetch('logo-crc.jpg')).blob();
+    logoCache = await new Promise(function(ok, mal) {
+      const l = new FileReader();
+      l.onload = function() { ok(l.result); };
+      l.onerror = mal;
+      l.readAsDataURL(blob);
+    });
+  } catch (e) {
+    logoCache = null;
+  }
+  return logoCache;
+}
+
+async function construirPdfHV(r) {
+  await cargarLibreriasPdf();
+
+  const d = datosDe(r);
+  const mttos = mttosDe(r.id).slice().reverse();
+  const fallas = mttos.filter(function(m) { return m.huboFalla; });
+  const av = avanceHV(d);
+
+  const doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'letter', orientation: 'portrait', compress: true });
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const M = 14;
+  const VINO = [132, 48, 63];
+  const SUAVE = [69, 52, 58];
+  const ROSA = [247, 227, 230];
+  const ROSA2 = [255, 204, 212];
+  const LINEA = [211, 184, 188];
+  const hoy = new Date();
+  const fechaHoy = dos(hoy.getDate()) + '/' + dos(hoy.getMonth() + 1) + '/' + hoy.getFullYear();
+
+  // Encabezado
+  const logo = await logoPdf();
+  if (logo) doc.addImage(logo, 'JPEG', M, 10, 16, 16);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  doc.setTextColor(VINO[0], VINO[1], VINO[2]);
+  doc.text('Hoja de vida — Cámara CCTV', M + 20, 17);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(SUAVE[0], SUAVE[1], SUAVE[2]);
+  doc.text('Clínica Reina Catalina · Departamento de seguridad', M + 20, 22.5);
+  doc.setDrawColor(LINEA[0], LINEA[1], LINEA[2]);
+  doc.rect(W - M - 46, 10, 46, 16);
+  doc.setFontSize(8);
+  doc.text(['Código: ________', 'Versión: ____', 'Fecha: ' + fechaHoy], W - M - 2, 14, { align: 'right' });
+  doc.setDrawColor(VINO[0], VINO[1], VINO[2]);
+  doc.setLineWidth(0.8);
+  doc.line(M, 29, W - M, 29);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(22, 13, 14);
+  doc.text(r.id, M, 36);
+  doc.setFontSize(9);
+  doc.text((d.estado || 'Sin estado') + '  ·  Hoja de vida ' + av.pct + ' %', W - M, 36, { align: 'right' });
+
+  let y = 40;
+
+  function seccion(titulo) {
+    if (y > H - 40) { doc.addPage(); y = 16; }
+    doc.setFillColor(VINO[0], VINO[1], VINO[2]);
+    doc.rect(M, y, W - 2 * M, 6.5, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text(titulo, M + 2.5, y + 4.5);
+    y += 7.5;
+  }
+
+  function val(v) { return vacio(v) ? '—' : String(v); }
+
+  const base = {
+    theme: 'grid',
+    margin: { left: M, right: M },
+    styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 1.6, lineColor: LINEA, lineWidth: 0.2, textColor: [22, 13, 14] },
+    headStyles: { fillColor: ROSA2, textColor: [51, 3, 15], fontStyle: 'bold' }
+  };
+
+  seccion('Datos técnicos');
+  const pares = [
+    ['Sede', d.sede, 'Edificación', d.edificacion],
+    ['Nivel', d.nivel, 'Subzona', d.subzona],
+    ['Área / Zona', d.areaZona, 'Dependencia', d.dependencia],
+    ['Tipo de ubicación', d.tipoUbicacion, 'Referencia', d.referencia],
+    ['Tipo de cámara', d.tipoCamara, 'Marca', d.marca],
+    ['Modelo', d.modelo, 'Serial', d.serial],
+    ['Visión nocturna', d.visionNocturna, 'Audio', d.audio],
+    ['IP', d.ip, 'NVR / DVR · Canal', [d.nvr, d.canal].filter(String).join(' · ')],
+    ['Estado físico', d.estadoFisico, 'Estado de cableado', d.estadoCableado],
+    ['Último mantenimiento', ultimoMtto(d), 'Próximo mantenimiento', fechaCorta(d.proximoMantenimiento)],
+    ['Responsable', d.responsable, 'Inventariada por', [d.registradoPor, fecha12(d.fechaRegistro)].filter(String).join(' · ')]
+  ];
+
+  doc.autoTable(Object.assign({}, base, {
+    startY: y,
+    body: pares.map(function(p) { return [p[0], val(p[1]), p[2], val(p[3])]; }),
+    columnStyles: {
+      0: { fillColor: ROSA, fontStyle: 'bold', textColor: SUAVE, cellWidth: 34 },
+      2: { fillColor: ROSA, fontStyle: 'bold', textColor: SUAVE, cellWidth: 34 }
+    }
+  }));
+  y = doc.lastAutoTable.finalY + 2;
+
+  if (!vacio(d.observaciones)) {
+    doc.autoTable(Object.assign({}, base, {
+      startY: y,
+      body: [['Observaciones', d.observaciones]],
+      columnStyles: { 0: { fillColor: ROSA, fontStyle: 'bold', textColor: SUAVE, cellWidth: 34 } }
+    }));
+    y = doc.lastAutoTable.finalY + 2;
+  }
+
+  y += 3;
+  seccion('Mantenimientos');
+  const filasM = mttos.map(function(m) {
+    return [m.fecha.split(' ')[0], m.tipo, [m.actividades, m.observaciones].filter(function(x) { return !vacio(x); }).join(' · '),
+      m.estadoImagen || '', m.tecnico || ''];
+  });
+  const totalM = filasM.length ? filasM.length + 2 : 5;
+  while (filasM.length < totalM) filasM.push(['', '', '', '', '']);
+  doc.autoTable(Object.assign({}, base, {
+    startY: y,
+    head: [['Fecha', 'Tipo', 'Actividades', 'Imagen', 'Técnico']],
+    body: filasM,
+    columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 28 }, 3: { cellWidth: 20 }, 4: { cellWidth: 32 } },
+    bodyStyles: { minCellHeight: 6 }
+  }));
+  y = doc.lastAutoTable.finalY + 5;
+
+  seccion('Fallas y reparaciones');
+  const filasF = fallas.map(function(m) {
+    return [m.fecha.split(' ')[0], m.falla || '', m.repuesto || '', m.diasFuera === undefined ? '' : String(m.diasFuera), m.tecnico || ''];
+  });
+  const totalF = filasF.length ? filasF.length + 1 : 3;
+  while (filasF.length < totalF) filasF.push(['', '', '', '', '']);
+  doc.autoTable(Object.assign({}, base, {
+    startY: y,
+    head: [['Fecha', 'Falla', 'Repuesto', 'Días fuera', 'Técnico']],
+    body: filasF,
+    columnStyles: { 0: { cellWidth: 22 }, 2: { cellWidth: 36 }, 3: { cellWidth: 20 }, 4: { cellWidth: 32 } },
+    bodyStyles: { minCellHeight: 6 }
+  }));
+  y = doc.lastAutoTable.finalY + 22;
+
+  if (y > H - 20) { doc.addPage(); y = 40; }
+  doc.setDrawColor(SUAVE[0], SUAVE[1], SUAVE[2]);
+  doc.setLineWidth(0.3);
+  const ancho = (W - 2 * M - 20) / 2;
+  doc.line(M, y, M + ancho, y);
+  doc.line(W - M - ancho, y, W - M, y);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(SUAVE[0], SUAVE[1], SUAVE[2]);
+  doc.text('Elaboró', M + ancho / 2, y + 4, { align: 'center' });
+  doc.text('Revisó · Jefe de monitoreo', W - M - ancho / 2, y + 4, { align: 'center' });
+
+  doc.setFontSize(7.5);
+  doc.setTextColor(133, 115, 116);
+  doc.text('Generado desde el Inventario CCTV el ' + fechaHoy + ' ' + hora12(hoy.getHours(), hoy.getMinutes()), W - M, H - 8, { align: 'right' });
+
+  return { blob: doc.output('blob'), nombre: 'Hoja de vida ' + r.id + '.pdf' };
+}
+
+async function pdfHojaDeVida() {
+  const r = camaraSel();
+  if (!r || guardando) return;
+
+  guardando = true;
+  toast('sync', 'Armando el PDF…', 2000);
+
+  try {
+    const pdf = await construirPdfHV(r);
+    const archivo = new File([pdf.blob], pdf.nombre, { type: 'application/pdf' });
+
+    // En el celular se abre "Compartir" (WhatsApp, correo, Archivos…); en el PC se descarga
+    if (navigator.canShare && navigator.canShare({ files: [archivo] }) && window.innerWidth < 1024) {
+      try {
+        await navigator.share({ files: [archivo], title: pdf.nombre });
+      } catch (e) {
+        if (e.name !== 'AbortError') descargarBlob(pdf.blob, pdf.nombre);
+      }
+    } else {
+      descargarBlob(pdf.blob, pdf.nombre);
+    }
+  } catch (e) {
+    sonarError();
+    toast('error', e.message, 6000);
+  } finally {
+    guardando = false;
+  }
+}
+
+function descargarBlob(blob, nombre) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nombre;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(function() { URL.revokeObjectURL(url); }, 60000);
+  toast('download', 'PDF descargado: ' + nombre);
 }
 
 function htmlMttoFila(m) {
@@ -1264,8 +1679,9 @@ function abrirEditar() {
   const r = camaraSel();
   if (!r) return;
 
+  const d = datosDe(r);
   S.ed = {};
-  CAMPOS.forEach(function(c) { S.ed[c.k] = r[c.k] || ''; });
+  CAMPOS.forEach(function(c) { S.ed[c.k] = d[c.k] || ''; });
   S.ed.errores = {};
   S.edFoto = '';
   S.modo = 'editar';
@@ -1358,6 +1774,8 @@ function pintarResumen() {
   const fuera = cuenta(function(r) { return igual(r.estado, 'Fuera de servicio'); });
 
   const conMtto = cuenta(function(r) { return !!ultimoMtto(r); });
+  const completas = cuenta(function(r) { return avanceHV(datosDe(r)).pct === 100; });
+  const pctHV = total ? Math.round(completas * 100 / total) : 0;
   const pct = total ? Math.round(conMtto * 100 / total) : 0;
 
   const ahora = new Date();
@@ -1400,11 +1818,13 @@ function pintarResumen() {
   }).join('');
 
   const faltan = [
-    ['Sin IP', cuenta(function(r) { return vacio(r.ip); })],
-    ['Sin NVR / DVR', cuenta(function(r) { return vacio(r.nvr); })],
-    ['Sin canal', cuenta(function(r) { return vacio(r.canal); })],
-    ['Sin serial', cuenta(function(r) { return vacio(r.serial); })],
+    ['Sin IP', cuenta(function(r) { return vacio(datosDe(r).ip); })],
+    ['Sin NVR / DVR', cuenta(function(r) { return vacio(datosDe(r).nvr); })],
+    ['Sin canal', cuenta(function(r) { return vacio(datosDe(r).canal); })],
+    ['Sin serial', cuenta(function(r) { return vacio(datosDe(r).serial); })],
     ['Sin subzona', cuenta(function(r) { return vacio(r.subzona); })],
+    ['Estado físico sin revisar', cuenta(function(r) { return !cumple(CRITERIOS[5], datosDe(r)); })],
+    ['Cableado sin revisar', cuenta(function(r) { return !cumple(CRITERIOS[6], datosDe(r)); })],
     ['Sin fotografía', cuenta(function(r) { return vacio(r.fotografia); })]
   ];
 
@@ -1427,9 +1847,11 @@ function pintarResumen() {
     '<p class="nota ancho">Inventario del ' + esc(fecha12(fechaCopia).replace(/\.$/, '')) +
       (pendCam || pendMt ? ' · no incluye ' + [pendCam ? pendCam + (pendCam === 1 ? ' cámara' : ' cámaras') : '', pendMt ? pendMt + (pendMt === 1 ? ' mantenimiento' : ' mantenimientos') : ''].filter(String).join(' ni ') + ' por subir' : '') + '.</p>' +
 
-    '<div><div class="secc" style="margin-bottom:8px"><span>Hoja de vida: mantenimientos</span></div>' +
+    '<div><div class="secc" style="margin-bottom:8px"><span>Hojas de vida</span></div>' +
     '<div class="grupo">' +
-      '<div class="avance"><div class="linea"><span>Cámaras con mantenimiento</span><b>' + conMtto + ' de ' + total + ' (' + pct + ' %)</b></div>' +
+      '<div class="avance"><div class="linea"><span>Hojas de vida completas</span><b>' + completas + ' de ' + total + ' (' + pctHV + ' %)</b></div>' +
+        '<div class="bar"><i style="width:' + pctHV + '%"></i></div></div>' +
+      '<div class="avance"><div class="linea"><span>Con revisión inicial o mantenimiento</span><b>' + conMtto + ' de ' + total + ' (' + pct + ' %)</b></div>' +
         '<div class="bar"><i style="width:' + pct + '%"></i></div></div>' +
       '<div class="dato"><span>Sin ningún mantenimiento</span><span>' + (total - conMtto) + '</span></div>' +
       '<div class="dato"><span>Registros este mes</span><span>' + delMes.length + '</span></div>' +
@@ -1467,12 +1889,15 @@ function pintarAccion() {
         : '<button type="button" class="btn prin" data-accion="guardarCamara">' + ico('check') + 'Guardar cámara</button>');
   } else if (S.vista === 'vBuscar' && camaraSel()) {
     if (S.modo === 'ficha') {
-      html = '<button type="button" class="btn sec" data-accion="editar">' + ico('edit') + 'Editar</button>' +
+      html = '<button type="button" class="btn sec" data-accion="pdf">' + ico('picture_as_pdf') + 'PDF</button>' +
         '<button type="button" class="btn prin" data-accion="mtto">' + ico('build') +
         '<span class="largo">Registrar mantenimiento</span><span class="corto">Mantenimiento</span></button>';
     } else if (S.modo === 'mtto') {
       html = '<button type="button" class="btn sec" data-accion="verFicha">Cancelar</button>' +
         '<button type="button" class="btn prin" data-accion="guardarMtto">' + ico('check') + 'Guardar</button>';
+    } else if (S.modo === 'completar') {
+      html = '<button type="button" class="btn sec" data-accion="verFicha">Cancelar</button>' +
+        '<button type="button" class="btn prin" data-accion="guardarCompletar">' + ico('check') + 'Guardar</button>';
     } else if (S.modo === 'editar') {
       html = '<button type="button" class="btn sec" data-accion="verFicha">Cancelar</button>' +
         '<button type="button" class="btn prin" data-accion="guardarEdicion"' + (guardando ? ' disabled' : '') + '>' +
@@ -1532,9 +1957,9 @@ function enlazarEventos() {
     // Opciones de los formularios de cámara
     if (b.dataset.campo && b.dataset.valor !== undefined) {
       const editando = !!b.closest('#detalle');
-      const v = editando ? S.ed : S.reg;
+      const v = editando ? (S.modo === 'completar' ? S.cp : S.ed) : S.reg;
       elegir(v, b.dataset.campo, b.dataset.valor);
-      if (editando) { delete S.ed.errores[b.dataset.campo]; pintarDetalle(); }
+      if (editando) { delete v.errores[b.dataset.campo]; pintarDetalle(); }
       else { delete S.errores[b.dataset.campo]; guardarBorrador(); pintarRegistro(); }
       return;
     }
@@ -1555,6 +1980,9 @@ function enlazarEventos() {
       case 'verFicha': S.modo = 'ficha'; pintarDetalle(); window.scrollTo(0, 0); break;
       case 'mtto': abrirMtto(); break;
       case 'editar': abrirEditar(); break;
+      case 'completar': abrirCompletar(); break;
+      case 'guardarCompletar': guardarCompletar(); break;
+      case 'pdf': pdfHojaDeVida(); break;
       case 'guardarMtto': guardarMtto(); break;
       case 'guardarEdicion': guardarEdicion(); break;
       case 'actualizarResumen': actualizarResumen(); break;
@@ -1570,7 +1998,7 @@ function enlazarEventos() {
 
     if (t.dataset.campo) {
       const editando = !!t.closest('#detalle');
-      const v = editando ? S.ed : S.reg;
+      const v = editando ? (S.modo === 'completar' ? S.cp : S.ed) : S.reg;
       v[t.dataset.campo] = t.value;
 
       if (!editando) {
