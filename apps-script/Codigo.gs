@@ -213,6 +213,8 @@ function doGet() {
  *   registrar      Guarda una cámara nueva (datos.uuid evita repetidos).
  *   actualizar     Modifica una cámara existente.
  *   mantenimiento  Guarda un mantenimiento en HISTORIAL_CCTV.
+ *   foto           Devuelve la foto de una cámara (tamaño mediano) para
+ *                  la hoja de vida y el PDF que arma la app.
  ***********************/
 
 function doPost(e) {
@@ -258,6 +260,9 @@ function doPost(e) {
       case 'mantenimiento':
         asegurarEstructura_();
         return responderJson_(guardarMantenimiento(peticion.datos));
+
+      case 'foto':
+        return responderJson_({ ok: true, foto: fotoCamara_(peticion.id) });
 
       default:
         return responderJson_({ ok: false, error: 'Acción desconocida.' });
@@ -1931,6 +1936,55 @@ function fotoBase64_(indice, id) {
   } catch (e) {
     return '';
   }
+}
+
+/**
+ * Foto de una cámara como data URL de unos 800 px (o '' si no tiene).
+ * Se busca por nombre en la carpeta de fotos: CAM-0001.jpg
+ */
+function fotoCamara_(id) {
+  const nombre = String(id || '').trim().toUpperCase();
+  if (!/^CAM-\d+$/.test(nombre)) return '';
+
+  const carpetas = DriveApp.getFoldersByName(NOMBRE_CARPETA_FOTOS);
+  if (!carpetas.hasNext()) return '';
+
+  const archivos = carpetas.next().getFilesByName(nombre + '.jpg');
+  let archivo = null;
+
+  while (archivos.hasNext()) {
+    const a = archivos.next();
+    if (!archivo || archivo.getDateCreated() < a.getDateCreated()) archivo = a;
+  }
+
+  if (!archivo) return '';
+
+  // Miniatura mediana de Drive (pesa poco y se ve bien en el PDF)
+  try {
+    const r = UrlFetchApp.fetch('https://drive.google.com/thumbnail?id=' + archivo.getId() + '&sz=w800', {
+      headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+      muteHttpExceptions: true
+    });
+    if (r.getResponseCode() === 200 && /^image\//.test(String(r.getHeaders()['Content-Type'] || r.getBlob().getContentType()))) {
+      return 'data:image/jpeg;base64,' + Utilities.base64Encode(r.getContent());
+    }
+  } catch (e) {
+    console.error('Miniatura de Drive: ' + e);
+  }
+
+  // Respaldo: la foto original si no es muy pesada
+  try {
+    const blob = archivo.getBlob();
+    if (blob.getBytes().length < 1500000) {
+      return 'data:' + (blob.getContentType() || 'image/jpeg') + ';base64,' + Utilities.base64Encode(blob.getBytes());
+    }
+    const mini = archivo.getThumbnail();
+    if (mini) return 'data:image/png;base64,' + Utilities.base64Encode(mini.getBytes());
+  } catch (e) {
+    console.error('Foto de ' + nombre + ': ' + e);
+  }
+
+  return '';
 }
 
 function esc_(t) {

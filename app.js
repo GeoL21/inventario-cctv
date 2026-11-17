@@ -979,6 +979,9 @@ function pintarBuscar() {
 }
 
 function abrirCamara(id) {
+  if (fotos[id] === undefined) {
+    fotoDeCamara(id).then(function() { if (S.sel === id && S.modo === 'ficha') pintarDetalle(); });
+  }
   if (!S.sel && window.innerWidth < 1024) {
     try { history.pushState({ ficha: 1 }, ''); } catch (e) { /* nada */ }
   }
@@ -1082,6 +1085,46 @@ function datosDe(r) {
   return d;
 }
 
+/* ----- Foto de la cámara: se pide al servidor y se guarda en el celular ----- */
+
+const fotos = {};          // id → data URL ('' = no tiene)
+const pidiendoFoto = {};
+
+async function fotoDeCamara(id, forzar) {
+  if (fotos[id] !== undefined && !forzar) return fotos[id];
+
+  try {
+    const guardada = await leerDato('foto:' + id);
+    if (guardada !== undefined && !forzar) { fotos[id] = guardada; return guardada; }
+  } catch (e) { /* sigue */ }
+
+  if (navigator.onLine === false || !codigoAcceso()) return null;
+  if (pidiendoFoto[id]) return pidiendoFoto[id];
+
+  pidiendoFoto[id] = (async function() {
+    try {
+      const r = await llamar('foto', { id: id }, 60000);
+      fotos[id] = r.foto || '';
+      await guardarDato('foto:' + id, fotos[id]);
+      return fotos[id];
+    } catch (e) {
+      return null;     // sin señal o servidor viejo: se intenta otra vez después
+    } finally {
+      delete pidiendoFoto[id];
+    }
+  })();
+
+  return pidiendoFoto[id];
+}
+
+function htmlFotoCamara(r) {
+  const f = fotos[r.id];
+  if (f) return '<div class="tarjeta" style="padding:8px"><img class="foto-prev" style="margin:0" src="' + f + '" alt="Foto de ' + esc(r.id) + '"></div>';
+  if (f === '') return '';
+  return '<div class="tarjeta"><p class="ayuda" style="margin:0">' + ico('photo_camera', 's') +
+    (navigator.onLine === false ? ' La foto se descarga cuando haya señal.' : ' Cargando la foto…') + '</p></div>';
+}
+
 function campoDe(k) { return CAMPOS.filter(function(c) { return c.k === k; })[0]; }
 
 function htmlFicha(r) {
@@ -1151,6 +1194,7 @@ function htmlFicha(r) {
     htmlCabDetalle(esc(r.id), esc([d.sede, String(d.edificacion).replace(d.sede + ' - ', ''), d.nivel].filter(String).join(' · ')), 'lista') +
     '<div>' + tagEstado(d.estado) + '</div>' +
     avance +
+    htmlFotoCamara(r) +
     '<div class="secc"><span>Datos técnicos</span><button type="button" class="link" data-accion="editar">' + ico('edit', 's') + 'Editar todo</button></div>' +
     '<div class="grupo">' + tecnicos + '</div>' +
     '<div class="secc"><span>Mantenimientos (' + mttos.length + ')</span><span class="opc">' + (mttos.length ? 'más reciente primero' : '') + '</span></div>' +
@@ -1339,6 +1383,9 @@ async function construirPdfHV(r) {
 
   let y = 40;
 
+  let foto = await fotoDeCamara(r.id);
+  if (!foto) foto = null;
+
   function seccion(titulo) {
     if (y > H - 40) { doc.addPage(); y = 16; }
     doc.setFillColor(VINO[0], VINO[1], VINO[2]);
@@ -1374,15 +1421,41 @@ async function construirPdfHV(r) {
     ['Responsable', d.responsable, 'Inventariada por', [d.registradoPor, fecha12(d.fechaRegistro)].filter(String).join(' · ')]
   ];
 
+  // Con foto: la tabla deja a la derecha un espacio para ella
+  const ANCHO_FOTO = 48;
+  const yTabla = y;
+
   doc.autoTable(Object.assign({}, base, {
     startY: y,
+    margin: { left: M, right: foto ? M + ANCHO_FOTO + 3 : M },
     body: pares.map(function(p) { return [p[0], val(p[1]), p[2], val(p[3])]; }),
     columnStyles: {
-      0: { fillColor: ROSA, fontStyle: 'bold', textColor: SUAVE, cellWidth: 34 },
-      2: { fillColor: ROSA, fontStyle: 'bold', textColor: SUAVE, cellWidth: 34 }
+      0: { fillColor: ROSA, fontStyle: 'bold', textColor: SUAVE, cellWidth: foto ? 26 : 34 },
+      2: { fillColor: ROSA, fontStyle: 'bold', textColor: SUAVE, cellWidth: foto ? 26 : 34 }
     }
   }));
   y = doc.lastAutoTable.finalY + 2;
+
+  if (foto) {
+    try {
+      const dim = await new Promise(function(ok, mal) {
+        const im = new Image();
+        im.onload = function() { ok({ w: im.width, h: im.height }); };
+        im.onerror = mal;
+        im.src = foto;
+      });
+      const caja = Math.min(ANCHO_FOTO, y - yTabla - 2);
+      const esc2 = Math.min(ANCHO_FOTO / dim.w, caja / dim.h);
+      const w = dim.w * esc2;
+      const h = dim.h * esc2;
+      const x = W - M - ANCHO_FOTO + (ANCHO_FOTO - w) / 2;
+      doc.setDrawColor(LINEA[0], LINEA[1], LINEA[2]);
+      doc.rect(W - M - ANCHO_FOTO, yTabla, ANCHO_FOTO, caja);
+      doc.addImage(foto, /png/.test(foto.slice(0, 30)) ? 'PNG' : 'JPEG', x, yTabla + (caja - h) / 2, w, h);
+    } catch (e) {
+      console.error('Foto en el PDF', e);
+    }
+  }
 
   if (!vacio(d.observaciones)) {
     doc.autoTable(Object.assign({}, base, {
