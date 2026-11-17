@@ -9,7 +9,8 @@
  * VERSION para que los celulares renueven la copia.
  *****************************************************************/
 
-const VERSION = 'cctv-v2';
+const VERSION = 'cctv-v3';
+const FUENTES = 'cctv-fuentes-v1';
 
 const ARCHIVOS = [
   './',
@@ -17,6 +18,7 @@ const ARCHIVOS = [
   'app.js',
   'config.js',
   'manifest.webmanifest',
+  'logo-crc.jpg',
   'icon-192.png',
   'icon-512.png',
   'icon-maskable-512.png'
@@ -26,7 +28,10 @@ self.addEventListener('install', function(event) {
   event.waitUntil(
     caches.open(VERSION)
       .then(function(cache) {
-        return cache.addAll(ARCHIVOS).then(function() {
+        // cache: 'reload' evita copiar archivos viejos guardados por el navegador
+        return cache.addAll(ARCHIVOS.map(function(url) {
+          return new Request(url, { cache: 'reload' });
+        })).then(function() {
           // La tipografía es opcional: si falta, la app usa la del celular
           return cache.add('PlusJakartaSans.ttf').catch(function() {});
         });
@@ -40,8 +45,12 @@ self.addEventListener('activate', function(event) {
     caches.keys()
       .then(function(nombres) {
         return Promise.all(
+          // Solo las copias viejas de ESTA app: las demás apps de
+          // geol21.github.io comparten el mismo almacenamiento
           nombres
-            .filter(function(nombre) { return nombre !== VERSION; })
+            .filter(function(nombre) {
+              return nombre.indexOf('cctv-') === 0 && nombre !== VERSION && nombre !== FUENTES;
+            })
             .map(function(nombre) { return caches.delete(nombre); })
         );
       })
@@ -52,11 +61,28 @@ self.addEventListener('activate', function(event) {
 self.addEventListener('fetch', function(event) {
   const peticion = event.request;
 
-  // Los envíos a Apps Script (POST, otro dominio) no pasan por aquí
-  if (peticion.method !== 'GET' ||
-      new URL(peticion.url).origin !== self.location.origin) {
+  if (peticion.method !== 'GET') return;
+
+  const url = new URL(peticion.url);
+
+  // Letras e íconos de Google: se guardan la primera vez para que la
+  // app se vea igual sin señal
+  if (url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') {
+    event.respondWith(
+      caches.open(FUENTES).then(function(cache) {
+        return cache.match(peticion).then(function(guardada) {
+          return guardada || fetch(peticion).then(function(r) {
+            if (r && (r.ok || r.type === 'opaque')) cache.put(peticion, r.clone());
+            return r;
+          });
+        });
+      })
+    );
     return;
   }
+
+  // Los envíos a Apps Script (POST, otro dominio) no pasan por aquí
+  if (url.origin !== self.location.origin) return;
 
   event.respondWith(
     caches.open(VERSION).then(function(cache) {

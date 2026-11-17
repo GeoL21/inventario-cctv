@@ -1,23 +1,23 @@
 /*****************************************************************
- * INVENTARIO CCTV — PWA
+ * INVENTARIO CCTV — PWA (versión con hoja de vida)
  *
  * Cómo funciona:
- *   1. Al guardar, la cámara (con su foto) se escribe primero en el
- *      celular, en la lista de "pendientes".
- *   2. Si hay señal se sube enseguida a la hoja de cálculo y recibe
- *      su ID. Si no hay señal se queda pendiente.
- *   3. Cuando vuelve la señal, los pendientes se suben solos, en el
- *      mismo orden en que se registraron.
+ *   1. Al guardar una cámara o un mantenimiento, se escribe primero
+ *      en el celular (lista de "pendientes").
+ *   2. Si hay señal se sube enseguida a la hoja de cálculo. Si no, se
+ *      queda pendiente y se sube sola cuando vuelve la conexión.
+ *   3. Buscar y ver la ficha de una cámara funciona sin señal, con la
+ *      copia del inventario y del historial guardada en el celular.
  *
- * Cada cámara lleva una marca única (uuid). Si una subida se corta y
- * se reintenta, el servidor la reconoce y no la guarda dos veces.
+ * Cada registro lleva una marca única (uuid): si una subida se corta
+ * y se reintenta, el servidor no lo guarda dos veces.
  *****************************************************************/
 
 'use strict';
 
 
 /***********************
- * EDIFICACIONES Y NIVELES
+ * LISTAS
  ***********************/
 
 const EDIFICACIONES_POR_SEDE = {
@@ -31,259 +31,187 @@ const TODAS_LAS_EDIFICACIONES = [
   'Baranoa - Edificio de Dependencias'
 ];
 
-const LISTA_ESTADOS = [
-  'Operativa',
-  'Operativa con novedad',
-  'Intermitente',
-  'Fuera de servicio',
-  'En mantenimiento'
-];
-
+const LISTA_ESTADOS = ['Operativa', 'Operativa con novedad', 'Intermitente', 'Fuera de servicio', 'En mantenimiento'];
 const LISTA_TIPOS_CAMARA = ['Domo', 'Bullet', 'Turret', 'Otra'];
+const LISTA_UBICACIONES = ['Pasillo', 'Habitación', 'Acceso', 'Escalera', 'Ascensor', 'Parqueadero',
+  'Área administrativa', 'Área asistencial', 'Área externa', 'Cuarto técnico', 'Cocina', 'Lavandería', 'Otro'];
+const SI_NO = ['Sí', 'No', 'No verificado'];
+const ESTADO_EQUIPO = ['Bueno', 'Regular', 'Malo', 'No verificado'];
 
-// Marcas que siempre se sugieren, con su escritura correcta
 const MARCAS_BASE = ['Hikvision', 'HiLook', 'Dahua', 'Epcom', 'Q-See'];
 
-// Niveles en el orden del formulario
+const TIPOS_MTTO = ['Revisión inicial', 'Preventivo', 'Correctivo'];
+const ACTIVIDADES = ['Limpieza de lente', 'Limpieza de carcasa', 'Ajuste de ángulo',
+  'Revisión de conectores', 'Revisión de fuente', 'Revisión de cableado', 'Cambio de cámara', 'Otro'];
+const ESTADOS_IMAGEN = ['Buena', 'Regular', 'Mala', 'Sin imagen'];
+
 function nivelesDe(edificacion) {
-
-  const niveles = [];
-
+  const n = [];
   if (edificacion === 'Barranquilla - Clínica') {
-    for (let i = 1; i <= 11; i++) niveles.push('Piso ' + i);
-    niveles.push('Sótano', 'Azotea');
+    n.push('Sótano');
+    for (let i = 1; i <= 11; i++) n.push('Piso ' + i);
+    n.push('Azotea');
+  } else if (edificacion === 'Baranoa - Clínica') {
+    n.push('Sótano');
+    for (let i = 1; i <= 7; i++) n.push('Piso ' + i);
+    n.push('Azotea');
+  } else if (edificacion === 'Baranoa - Edificio de Dependencias') {
+    n.push('Planta 1', 'Planta 2', 'Planta 3');
   }
-
-  if (edificacion === 'Baranoa - Clínica') {
-    for (let i = 1; i <= 7; i++) niveles.push('Piso ' + i);
-    niveles.push('Sótano', 'Azotea');
-  }
-
-  if (edificacion === 'Baranoa - Edificio de Dependencias') {
-    niveles.push('Planta 1', 'Planta 2', 'Planta 3');
-  }
-
-  return niveles;
+  return n;
 }
 
-// Orden para el resumen: Sótano, 1, 2, 3... y Azotea al final
 function ordenNivel(nivel) {
-
-  const texto = String(nivel || '').trim().toLowerCase();
-
-  if (texto === 'sótano' || texto === 'sotano') return -1;
-  if (texto === 'azotea') return 999;
-
-  const numero = texto.match(/(\d+)/);
-
-  return numero ? parseInt(numero[1], 10) : 1000;
+  const t = String(nivel || '').trim().toLowerCase();
+  if (t === 'sótano' || t === 'sotano') return -1;
+  if (t === 'azotea') return 999;
+  const m = t.match(/(\d+)/);
+  return m ? parseInt(m[1], 10) : 1000;
 }
 
-function llenarSelect(select, opciones, conSeleccione) {
+/**
+ * Campos de la cámara. t: seg (botones en una fila), chips, pisos,
+ * texto, fecha, area. paso: en qué paso del registro va.
+ */
+const CAMPOS = [
+  { k: 'sede', l: 'Sede', t: 'seg', o: ['Barranquilla', 'Baranoa'], req: true, paso: 1, secc: 'Dónde está' },
+  { k: 'edificacion', l: 'Edificación', t: 'seg', o: function(v) { return EDIFICACIONES_POR_SEDE[v.sede] || []; },
+    req: true, paso: 1, secc: 'Dónde está', vacio: 'Elige primero la sede.' },
+  { k: 'nivel', l: 'Nivel', t: 'pisos', o: function(v) { return nivelesDe(v.edificacion); },
+    req: true, paso: 1, secc: 'Dónde está', vacio: 'Elige primero la edificación.' },
+  { k: 'subzona', l: 'Subzona', t: 'seg', o: ['A', 'B', 'C', 'No aplica'], paso: 1, secc: 'Dónde está' },
 
-  select.innerHTML = '';
+  { k: 'tipoUbicacion', l: 'Tipo de ubicación', t: 'chips', o: LISTA_UBICACIONES, req: true, paso: 1, secc: 'Ubicación exacta' },
+  { k: 'areaZona', l: 'Área / Zona', t: 'texto', ph: 'Pasillo principal, acceso UCI, recepción', req: true, paso: 1, secc: 'Ubicación exacta' },
+  { k: 'dependencia', l: 'Dependencia', t: 'texto', ph: 'UCI, urgencias, administración', paso: 1, secc: 'Ubicación exacta' },
 
-  if (conSeleccione) {
-    agregarOpcion(select, 'Seleccione', '');
-  }
+  { k: 'tipoCamara', l: 'Tipo de cámara', t: 'seg', o: LISTA_TIPOS_CAMARA, req: true, paso: 2, secc: 'La cámara' },
+  { k: 'marca', l: 'Marca', t: 'texto', ph: 'Hikvision, Dahua', lista: 'listaMarcas', paso: 2, secc: 'La cámara' },
+  { k: 'modelo', l: 'Modelo', t: 'texto', paso: 2, secc: 'La cámara' },
+  { k: 'serial', l: 'Serial', t: 'texto', paso: 2, secc: 'La cámara', mayus: true },
+  { k: 'referencia', l: 'Referencia / código interno', t: 'texto', paso: 2, secc: 'La cámara' },
+  { k: 'visionNocturna', l: 'Visión nocturna', t: 'seg', o: SI_NO, paso: 2, secc: 'Funciones' },
+  { k: 'audio', l: 'Audio', t: 'seg', o: SI_NO, paso: 2, secc: 'Funciones' },
+  { k: 'ip', l: 'IP', t: 'texto', ph: '192.168.1.45', paso: 2, secc: 'Conexión', teclado: 'decimal' },
+  { k: 'nvr', l: 'NVR / DVR', t: 'texto', ph: 'NVR-2', paso: 2, secc: 'Conexión', mayus: true },
+  { k: 'canal', l: 'Canal', t: 'texto', ph: '07', paso: 2, secc: 'Conexión', teclado: 'numeric' },
 
-  opciones.forEach(function(texto) {
-    agregarOpcion(select, texto);
-  });
-}
+  { k: 'estado', l: 'Estado operativo', t: 'chips', o: LISTA_ESTADOS, req: true, paso: 3, secc: 'Estado' },
+  { k: 'estadoFisico', l: 'Estado físico', t: 'seg', o: ESTADO_EQUIPO, paso: 3, secc: 'Estado' },
+  { k: 'estadoCableado', l: 'Estado del cableado', t: 'seg', o: ESTADO_EQUIPO, paso: 3, secc: 'Estado' },
+  { k: 'ultimoMantenimiento', l: 'Último mantenimiento', t: 'fecha', paso: 3, secc: 'Mantenimiento' },
+  { k: 'proximoMantenimiento', l: 'Próximo mantenimiento', t: 'fecha', paso: 3, secc: 'Mantenimiento' },
+  { k: 'responsable', l: 'Responsable del mantenimiento', t: 'texto', paso: 3, secc: 'Mantenimiento' },
+  { k: 'observaciones', l: 'Observaciones', t: 'area', ph: 'Novedades, daños, recomendaciones', paso: 3, secc: 'Observaciones' },
 
-function agregarOpcion(select, texto, valorOpcion) {
+  { k: 'registradoPor', l: 'Registrado por', t: 'texto', ph: 'Tu nombre', req: true, paso: 4, secc: 'Quién registra', soloRegistro: true }
+];
 
-  const option = document.createElement('option');
-
-  option.value = valorOpcion === undefined ? texto : valorOpcion;
-  option.textContent = texto;
-
-  select.appendChild(option);
-}
-
-function actualizarEdificaciones() {
-
-  llenarSelect(
-    document.getElementById('edificacion'),
-    EDIFICACIONES_POR_SEDE[valor('sede')] || [],
-    true
-  );
-
-  actualizarNiveles();
-}
-
-function actualizarNiveles() {
-
-  llenarSelect(
-    document.getElementById('nivel'),
-    nivelesDe(valor('edificacion')),
-    true
-  );
-}
+const PASOS = ['Ubicación', 'Cámara', 'Estado', 'Foto y registro'];
 
 
 /***********************
- * ALMACÉN DEL CELULAR (IndexedDB)
- *   pendientes  cámaras guardadas que aún no se han subido
- *   datos       copia del inventario para buscar sin señal
+ * ALMACENAMIENTO EN EL CELULAR
  ***********************/
+
+const PREF = 'cctv:';
+const ls = {
+  get: function(k, d) { try { const v = localStorage.getItem(PREF + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set: function(k, v) { try { localStorage.setItem(PREF + k, JSON.stringify(v)); } catch (e) { /* sin espacio */ } }
+};
+
+// El código usa la misma clave de siempre para no pedirlo otra vez
+const CLAVE_CODIGO = 'cctv_codigo';
+
+function codigoAcceso() {
+  try { return localStorage.getItem(CLAVE_CODIGO) || ''; } catch (e) { return ''; }
+}
 
 let promesaBD = null;
 
 function abrirBD() {
-
   if (!promesaBD) {
-
     promesaBD = new Promise(function(resolve, reject) {
-
-      const peticion = indexedDB.open('inventario-cctv', 1);
-
-      peticion.onupgradeneeded = function() {
-        const bd = peticion.result;
-        bd.createObjectStore('pendientes', { keyPath: 'uuid' });
-        bd.createObjectStore('datos');
+      const p = indexedDB.open('inventario-cctv', 1);
+      p.onupgradeneeded = function() {
+        p.result.createObjectStore('pendientes', { keyPath: 'uuid' });
+        p.result.createObjectStore('datos');
       };
-
-      peticion.onsuccess = function() { resolve(peticion.result); };
-      peticion.onerror = function() { reject(peticion.error); };
+      p.onsuccess = function() { resolve(p.result); };
+      p.onerror = function() { reject(p.error); };
     });
   }
-
   return promesaBD;
 }
 
 function enAlmacen(almacen, modo, operacion) {
-
   return abrirBD().then(function(bd) {
-
     return new Promise(function(resolve, reject) {
-
-      const transaccion = bd.transaction(almacen, modo);
-      const peticion = operacion(transaccion.objectStore(almacen));
-
-      transaccion.oncomplete = function() {
-        resolve(peticion ? peticion.result : undefined);
-      };
-
-      transaccion.onerror = function() { reject(transaccion.error); };
-      transaccion.onabort = function() { reject(transaccion.error); };
+      const tx = bd.transaction(almacen, modo);
+      const peticion = operacion(tx.objectStore(almacen));
+      tx.oncomplete = function() { resolve(peticion ? peticion.result : undefined); };
+      tx.onerror = function() { reject(tx.error); };
+      tx.onabort = function() { reject(tx.error); };
     });
   });
 }
 
 function listarPendientes() {
-
-  return enAlmacen('pendientes', 'readonly', function(a) {
-    return a.getAll();
-  }).then(function(lista) {
-    return (lista || []).sort(function(a, b) {
-      return a.datos.fechaCaptura - b.datos.fechaCaptura;
+  return enAlmacen('pendientes', 'readonly', function(a) { return a.getAll(); })
+    .then(function(lista) {
+      return (lista || []).sort(function(a, b) { return a.datos.fechaCaptura - b.datos.fechaCaptura; });
     });
-  });
 }
+function guardarPendiente(p) { return enAlmacen('pendientes', 'readwrite', function(a) { return a.put(p); }); }
+function borrarPendiente(uuid) { return enAlmacen('pendientes', 'readwrite', function(a) { return a.delete(uuid); }); }
+function leerDato(k) { return enAlmacen('datos', 'readonly', function(a) { return a.get(k); }); }
+function guardarDato(k, v) { return enAlmacen('datos', 'readwrite', function(a) { return a.put(v, k); }); }
 
-function guardarPendiente(pendiente) {
-  return enAlmacen('pendientes', 'readwrite', function(a) {
-    return a.put(pendiente);
-  });
-}
-
-function borrarPendiente(uuid) {
-  return enAlmacen('pendientes', 'readwrite', function(a) {
-    return a.delete(uuid);
-  });
-}
-
-function leerDato(clave) {
-  return enAlmacen('datos', 'readonly', function(a) {
-    return a.get(clave);
-  });
-}
-
-function guardarDato(clave, contenido) {
-  return enAlmacen('datos', 'readwrite', function(a) {
-    return a.put(contenido, clave);
-  });
-}
+function esMtto(p) { return p && p.tipo === 'mantenimiento'; }
 
 
 /***********************
- * COMUNICACIÓN CON APPS SCRIPT
+ * SERVIDOR
  ***********************/
 
-const CLAVE_CODIGO = 'cctv_codigo';
-
-function codigoAcceso() {
-  try {
-    return localStorage.getItem(CLAVE_CODIGO) || '';
-  } catch (e) {
-    return '';
-  }
-}
-
 function urlConfigurada() {
-  return typeof URL_APPS_SCRIPT === 'string' &&
-         /^https:\/\/.+\/exec$/.test(URL_APPS_SCRIPT.trim());
+  return typeof URL_APPS_SCRIPT === 'string' && /^https:\/\/.+\/exec$/.test(URL_APPS_SCRIPT.trim());
 }
 
-/**
- * Envía una acción al servidor. Si no hay red, el error lleva
- * sinRed = true para que quien llama sepa que puede reintentar luego.
- */
 async function llamar(accion, extra, esperaMs, codigo) {
-
-  if (!urlConfigurada()) {
-    throw new Error(
-      'Falta configurar la app: pega la URL de Apps Script en el archivo config.js.'
-    );
-  }
+  if (!urlConfigurada()) throw new Error('Falta configurar la app: pega la URL de Apps Script en config.js.');
 
   const control = new AbortController();
   const reloj = setTimeout(function() { control.abort(); }, esperaMs || 60000);
-
   let respuesta;
 
   try {
-
-    // Sin cabeceras: se envía como texto y Apps Script lo lee con
-    // e.postData.contents. Así el navegador no hace consulta previa.
+    // Como texto y sin cabeceras: el navegador no hace consulta previa
     respuesta = await fetch(URL_APPS_SCRIPT.trim(), {
       method: 'POST',
-      body: JSON.stringify(Object.assign(
-        { accion: accion, codigo: codigo === undefined ? codigoAcceso() : codigo },
-        extra || {}
-      )),
+      body: JSON.stringify(Object.assign({ accion: accion, codigo: codigo === undefined ? codigoAcceso() : codigo }, extra || {})),
       redirect: 'follow',
       signal: control.signal
     });
-
   } catch (e) {
-
-    const error = new Error('Sin conexión con el servidor.');
-    error.sinRed = true;
-    throw error;
-
+    const err = new Error('Sin conexión con el servidor.');
+    err.sinRed = true;
+    throw err;
   } finally {
     clearTimeout(reloj);
   }
 
   let json;
-
   try {
     json = await respuesta.json();
   } catch (e) {
-    throw new Error(
-      'El servidor no respondió como se esperaba. Revisa que la ' +
-      'implementación de Apps Script esté publicada con acceso para ' +
-      '"Cualquier usuario".'
-    );
+    throw new Error('El servidor no respondió como se esperaba. Revisa que la implementación de Apps Script esté publicada para "Cualquier usuario".');
   }
 
   if (!json.ok) {
-    const error = new Error(json.error || 'El servidor rechazó la solicitud.');
-    error.codigo = json.codigo || '';
-    throw error;
+    const err = new Error(json.error || 'El servidor rechazó la solicitud.');
+    err.codigo = json.codigo || '';
+    throw err;
   }
 
   return json;
@@ -291,421 +219,439 @@ async function llamar(accion, extra, esperaMs, codigo) {
 
 
 /***********************
- * CÓDIGO DE ACCESO
+ * ESTADO DE LA APP
  ***********************/
 
-function pedirCodigo(mensaje) {
+const S = {
+  vista: 'vRegistrar',
+  paso: 1,
+  reg: ls.get('borrador', {}),
+  regFoto: '',
+  errores: {},
+  // Buscar
+  texto: '',
+  sede: '',
+  filtro: '',
+  sel: null,          // ID de la cámara abierta
+  modo: 'ficha',      // ficha | mtto | editar
+  mt: null,           // formulario de mantenimiento
+  ed: null,           // formulario de edición
+  edFoto: '',
+  // Resumen
+  sedeResumen: ''
+};
 
-  document.getElementById('acceso').classList.remove('hidden');
-  document.getElementById('errorAcceso').textContent = mensaje || '';
-  document.getElementById('codigoAcceso').value = '';
-}
-
-async function validarAcceso() {
-
-  const codigo = valor('codigoAcceso');
-  const aviso = document.getElementById('errorAcceso');
-
-  if (!codigo) {
-    aviso.textContent = 'Escribe el código.';
-    return;
-  }
-
-  bloquearBoton('btnAcceso', true);
-  aviso.textContent = 'Comprobando...';
-
-  try {
-
-    await llamar('validar', {}, 30000, codigo);
-
-    localStorage.setItem(CLAVE_CODIGO, codigo);
-
-    document.getElementById('acceso').classList.add('hidden');
-
-    iniciarDatos();
-
-  } catch (e) {
-
-    aviso.textContent = e.sinRed
-      ? 'No hay señal. El código se comprueba una sola vez y necesita conexión.'
-      : e.message;
-
-  } finally {
-    bloquearBoton('btnAcceso', false);
-  }
-}
-
-function accesoRechazado() {
-
-  try {
-    localStorage.removeItem(CLAVE_CODIGO);
-  } catch (e) { /* sin almacenamiento */ }
-
-  pedirCodigo('El código cambió. Escribe el nuevo.');
-}
+let registros = null;   // copia del inventario
+let historial = [];     // copia del historial
+let fechaCopia = '';
+let pendientesCache = [];
 
 
 /***********************
- * CAMBIAR VISTAS
+ * UTILIDADES
  ***********************/
 
-function mostrarVista(id) {
+function $(id) { return document.getElementById(id); }
 
-  ['registro', 'busqueda', 'resumen'].forEach(function(vista) {
-    document.getElementById(vista)
-      .classList.toggle('hidden', vista !== id);
-  });
-
-  // Marca la sección activa en la barra de abajo
-  [['registro', 'navRegistro'], ['busqueda', 'navBusqueda'], ['resumen', 'navResumen']]
-    .forEach(function(par) {
-
-      const boton = document.getElementById(par[1]);
-
-      if (!boton) return;
-
-      boton.classList.toggle('on', par[0] === id);
-
-      if (par[0] === id) boton.setAttribute('aria-current', 'page');
-      else boton.removeAttribute('aria-current');
-    });
-
-  window.scrollTo(0, 0);
-
-  ocultarMensaje();
+function esc(t) {
+  return String(t === null || t === undefined ? '' : t)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function mostrarRegistro() {
-  mostrarVista('registro');
+function ico(nombre, extra) { return '<span class="ms ' + (extra || '') + '" aria-hidden="true">' + nombre + '</span>'; }
+
+const SVG_LISTO = '<svg viewBox="0 -960 960 960" aria-hidden="true"><path d="m344-60-76-128-144-32 14-148-98-112 98-112-14-148 144-32 76-128 136 58 136-58 76 128 144 32-14 148 98 112-98 112 14 148-144 32-76 128-136-58-136 58Zm94-278 226-226-56-58-170 170-86-84-56 56 142 142Z"/></svg>';
+
+function chipListo() { return '<span class="listo">' + SVG_LISTO + 'Listo</span>'; }
+
+function igual(a, b) { return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase(); }
+
+function vacio(v) { return String(v === null || v === undefined ? '' : v).trim() === ''; }
+
+function dos(n) { return String(n).padStart(2, '0'); }
+
+/** 4:30 p. m. */
+function hora12(h, m) {
+  return ((h % 12) || 12) + ':' + dos(m) + (h < 12 ? ' a. m.' : ' p. m.');
 }
 
-function mostrarBusqueda() {
-  mostrarVista('busqueda');
-  cerrarEdicion();
-  cargarRegistros();
+function fechaHora(ms) {
+  const f = new Date(ms);
+  return dos(f.getDate()) + '/' + dos(f.getMonth() + 1) + '/' + f.getFullYear() + ' ' + hora12(f.getHours(), f.getMinutes());
 }
 
-function mostrarResumen() {
-  mostrarVista('resumen');
-  cargarResumen();
+/** "17/11/2026 16:49" del servidor → "17/11/2026 4:49 p. m." */
+function fecha12(texto) {
+  const m = String(texto || '').match(/^(\d{2}\/\d{2}\/\d{4})\s+(\d{1,2}):(\d{2})/);
+  return m ? m[1] + ' ' + hora12(Number(m[2]), Number(m[3])) : String(texto || '');
 }
 
-
-/***********************
- * FOTO
- ***********************/
-
-function previsualizarFoto(event, idImagen) {
-
-  const archivo = event.target.files[0];
-  const img = document.getElementById(idImagen);
-
-  if (!archivo) {
-    img.classList.add('hidden');
-    return;
-  }
-
-  const reader = new FileReader();
-
-  reader.onload = function(e) {
-    img.src = e.target.result;
-    img.classList.remove('hidden');
-  };
-
-  reader.readAsDataURL(archivo);
+/** "2026-11-17" → "17/11/2026" */
+function fechaCorta(texto) {
+  const m = String(texto || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? m[3] + '/' + m[2] + '/' + m[1] : '';
 }
 
-function comprimirImagen(file) {
-
-  return new Promise(function(resolve, reject) {
-
-    const reader = new FileReader();
-
-    reader.onload = function(e) {
-
-      const img = new Image();
-
-      img.onload = function() {
-
-        const maxWidth = 1280;
-
-        let width = img.width;
-        let height = img.height;
-
-        if (width > maxWidth) {
-          height = height * maxWidth / width;
-          width = maxWidth;
-        }
-
-        const canvas = document.createElement('canvas');
-
-        canvas.width = width;
-        canvas.height = height;
-
-        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-
-        resolve(canvas.toDataURL('image/jpeg', 0.75));
-      };
-
-      img.onerror = function() {
-        reject(new Error('No se pudo leer la fotografía.'));
-      };
-
-      img.src = e.target.result;
-    };
-
-    reader.onerror = function() {
-      reject(new Error('No se pudo leer la fotografía.'));
-    };
-
-    reader.readAsDataURL(file);
-  });
+/** "17/11/2026 4:49 p. m." → milisegundos (para ordenar) */
+function msDeFecha(texto) {
+  const m = String(texto || '').match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+  return m ? new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]), Number(m[4] || 0), Number(m[5] || 0)).getTime() : 0;
 }
-
-async function fotoDe(idInput) {
-
-  const archivo = document.getElementById(idInput).files[0];
-
-  return archivo ? await comprimirImagen(archivo) : '';
-}
-
-
-/***********************
- * GUARDAR
- ***********************/
-
-let guardando = false;
 
 function nuevoUuid() {
-
-  if (window.crypto && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-
-  return Date.now().toString(36) + '-' +
-         Math.random().toString(36).slice(2) +
-         Math.random().toString(36).slice(2);
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
 }
 
-async function obtenerDatosFormulario() {
+function limpiarSerial(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
 
-  return {
-    uuid: nuevoUuid(),
-    fechaCaptura: Date.now(),
+let relojToast = null;
 
-    sede: valor('sede'),
-    edificacion: valor('edificacion'),
-    nivel: valor('nivel'),
-    subzona: valor('subzona'),
-    dependencia: valor('dependencia'),
-    tipoUbicacion: valor('tipoUbicacion'),
-    areaZona: valor('areaZona'),
-    referencia: valor('referencia'),
-    tipoCamara: valor('tipoCamara'),
-    marca: valor('marca'),
-    modelo: valor('modelo'),
-    serial: valor('serial'),
-    visionNocturna: valor('visionNocturna'),
-    audio: valor('audio'),
-    estado: valor('estado'),
-    estadoFisico: valor('estadoFisico'),
-    estadoCableado: valor('estadoCableado'),
-    ultimoMantenimiento: valor('ultimoMantenimiento'),
-    proximoMantenimiento: valor('proximoMantenimiento'),
-    responsable: valor('responsable'),
-    observaciones: valor('observaciones'),
-    registradoPor: valor('registradoPor'),
-    fotografia: await fotoDe('fotografia')
-  };
+function toast(icono, texto, ms) {
+  const t = $('toast');
+  t.innerHTML = ico(icono) + '<span></span>';
+  t.lastChild.textContent = texto;
+  t.classList.remove('oculto');
+  clearTimeout(relojToast);
+  relojToast = setTimeout(function() { t.classList.add('oculto'); }, ms || 4000);
 }
 
-async function guardar() {
 
-  // Evita el doble toque
-  if (guardando) {
-    return;
-  }
+/***********************
+ * SONIDOS Y VIBRACIÓN
+ ***********************/
 
-  // Se marca antes de cualquier espera: un segundo toque ya no entra
-  guardando = true;
-  bloquearBoton('btnGuardar', true);
+let actx = null;
 
-  ocultarMensaje();
-
-  let datos;
-
+function prepararSonido() {
   try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+  } catch (e) { /* sin sonido */ }
+}
 
-    if (!validarFormulario() ||
-        !(await serialAceptado(valor('serial')))) {
+function tono(notas, vol) {
+  try {
+    if (!actx) return;
+    const t0 = actx.currentTime + 0.02;
+    notas.forEach(function(n) {
+      const o = actx.createOscillator();
+      const g = actx.createGain();
+      o.type = 'sine';
+      o.frequency.value = n[0];
+      g.gain.setValueAtTime(0.0001, t0 + n[1]);
+      g.gain.exponentialRampToValueAtTime(vol, t0 + n[1] + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + n[1] + n[2]);
+      o.connect(g);
+      g.connect(actx.destination);
+      o.start(t0 + n[1]);
+      o.stop(t0 + n[1] + n[2] + 0.05);
+    });
+  } catch (e) { /* sin sonido */ }
+}
 
-      guardando = false;
-      bloquearBoton('btnGuardar', false);
+function vibrar(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) { /* nada */ } }
+function sonarListo() { tono([[784, 0, 0.28], [1046.5, 0.13, 0.28], [1318.5, 0.26, 0.5]], 0.22); vibrar([50, 60, 90]); }
+function sonarFalta() { tono([[659.3, 0, 0.18], [523.3, 0.16, 0.32]], 0.18); vibrar(80); }
+function sonarError() { tono([[330, 0, 0.25], [247, 0.2, 0.4]], 0.2); vibrar(250); }
 
-      return;
+
+/***********************
+ * FOTOS
+ ***********************/
+
+function comprimirImagen(file) {
+  return new Promise(function(resolve, reject) {
+    const lector = new FileReader();
+    lector.onload = function(e) {
+      const img = new Image();
+      img.onload = function() {
+        const max = 1280;
+        let w = img.width;
+        let h = img.height;
+        if (w > max) { h = h * max / w; w = max; }
+        const c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(c.toDataURL('image/jpeg', 0.75));
+      };
+      img.onerror = function() { reject(new Error('No se pudo leer la fotografía.')); };
+      img.src = e.target.result;
+    };
+    lector.onerror = function() { reject(new Error('No se pudo leer la fotografía.')); };
+    lector.readAsDataURL(file);
+  });
+}
+
+let destinoFoto = null;
+
+function pedirFoto(alTener) {
+  destinoFoto = alTener;
+  const entrada = $('archivoFoto');
+  entrada.value = '';
+  entrada.click();
+}
+
+
+/***********************
+ * FORMULARIO DE LA CÁMARA (registro y edición)
+ ***********************/
+
+function opcionesDe(campo, v) {
+  return typeof campo.o === 'function' ? campo.o(v) : (campo.o || []);
+}
+
+/** Pinta los campos (de un paso o todos) agrupados por sección. */
+function htmlCampos(campos, v, errores, prefijo) {
+  const secciones = [];
+  const porSeccion = {};
+
+  campos.forEach(function(c) {
+    if (!porSeccion[c.secc]) {
+      porSeccion[c.secc] = [];
+      secciones.push(c.secc);
     }
+    porSeccion[c.secc].push(c);
+  });
 
-    mostrarCargando('Guardando cámara...');
+  return secciones.map(function(nombre) {
+    const lista = porSeccion[nombre];
+    const obligatorios = lista.filter(function(c) { return c.req; });
+    const completa = obligatorios.length && obligatorios.every(function(c) { return !vacio(v[c.k]); });
 
-    datos = await obtenerDatosFormulario();
+    return '<div class="secc"><span>' + esc(nombre) + '</span>' +
+      (obligatorios.length ? '<span data-listo-secc="' + esc(nombre) + '">' + (completa ? chipListo() : '') + '</span>' : '<span class="opc">opcional</span>') +
+      '</div>' +
+      '<div class="grupo">' + lista.map(function(c) { return htmlCampo(c, v, errores, prefijo); }).join('') + '</div>';
+  }).join('');
+}
 
-    // 1. Primero al celular: desde aquí la cámara ya no se pierde
-    await guardarPendiente({ uuid: datos.uuid, datos: datos, intentos: 0 });
+function htmlCampo(c, v, errores, prefijo) {
+  const id = prefijo + c.k;
+  const val = v[c.k] === undefined || v[c.k] === null ? '' : String(v[c.k]);
+  const error = errores[c.k];
+  let control = '';
 
-  } catch (error) {
+  if (c.t === 'seg' || c.t === 'chips' || c.t === 'pisos') {
+    const ops = opcionesDe(c, v);
 
-    guardando = false;
-    bloquearBoton('btnGuardar', false);
+    if (!ops.length) {
+      control = '<p class="ayuda">' + esc(c.vacio || '') + '</p>';
+    } else {
+      // Si el valor guardado no está en la lista, se muestra igual para no perderlo
+      const todas = val && ops.indexOf(val) === -1 ? ops.concat([val]) : ops;
+      const clase = c.t === 'seg' ? 'seg' : (c.t === 'pisos' ? 'chips pisos' : 'chips');
+      const cls = c.t === 'seg' ? '' : 'chip';
 
-    mostrarMensaje(
-      'No se pudo guardar en el celular: ' + error.message,
-      'error'
-    );
-
-    return;
+      control = '<div class="' + clase + '" role="group" aria-label="' + esc(c.l) + '">' +
+        todas.map(function(o) {
+          const on = o === val;
+          return '<button type="button" class="' + cls + '" aria-pressed="' + on + '" data-campo="' + c.k +
+            '" data-valor="' + esc(o) + '">' + (on && c.t !== 'seg' ? ico('check') : '') + esc(o) + '</button>';
+        }).join('') + '</div>';
+    }
+  } else if (c.t === 'area') {
+    control = '<textarea id="' + id + '" class="entrada" data-campo="' + c.k + '" placeholder="' + esc(c.ph || '') + '">' + esc(val) + '</textarea>';
+  } else {
+    control = '<input id="' + id + '" class="entrada" data-campo="' + c.k + '" value="' + esc(val) + '"' +
+      (c.t === 'fecha' ? ' type="date"' : ' type="text" autocomplete="off"') +
+      (c.lista ? ' list="' + c.lista + '"' : '') +
+      (c.teclado ? ' inputmode="' + c.teclado + '"' : '') +
+      (c.mayus ? ' autocapitalize="characters"' : '') +
+      ' placeholder="' + esc(c.ph || '') + '">';
   }
 
-  // El formulario queda libre para la siguiente cámara
-  limpiarFormulario(true);
+  const conEntrada = ['texto', 'fecha', 'area'].indexOf(c.t) !== -1;
 
-  guardando = false;
-  bloquearBoton('btnGuardar', false);
+  return '<div class="campo' + (error ? ' mal' : '') + '" id="campo_' + id + '">' +
+    (conEntrada ? '<label class="etq" for="' + id + '">' : '<div class="etq">') + '<span>' + esc(c.l) + '</span>' + (conEntrada ? '</label>' : '</div>') +
+    control +
+    (error ? '<p class="error-campo">' + ico('error', 's') + esc(error) + '</p>' : '') +
+    '</div>';
+}
 
-  mostrarCargando('Guardada en el celular. Subiendo...');
-  pintarEstado();
+/** Al elegir una opción: guarda, ajusta los campos que dependen y deshace si se toca la misma. */
+function elegir(v, campo, valor) {
+  const c = CAMPOS.filter(function(x) { return x.k === campo; })[0];
 
-  // 2. Luego a la hoja de cálculo, si hay señal
-  const resultado = await sincronizar();
+  v[campo] = v[campo] === valor && !(c && c.req) ? '' : valor;
 
-  if (resultado.ids[datos.uuid]) {
+  if (campo === 'sede') {
+    const eds = EDIFICACIONES_POR_SEDE[v.sede] || [];
+    if (eds.indexOf(v.edificacion) === -1) v.edificacion = eds.length === 1 ? eds[0] : '';
+  }
 
-    mostrarMensaje(
-      'Cámara registrada correctamente. ID asignado: ' +
-      resultado.ids[datos.uuid],
-      'success'
-    );
-
-  } else if (resultado.errores[datos.uuid]) {
-
-    mostrarMensaje(
-      'La cámara quedó guardada en el celular, pero el servidor la ' +
-      'rechazó: ' + resultado.errores[datos.uuid],
-      'error'
-    );
-
-  } else {
-
-    mostrarMensaje(
-      'Sin señal: la cámara quedó guardada en este celular y se ' +
-      'subirá sola cuando vuelva la conexión.',
-      'success'
-    );
+  if (campo === 'sede' || campo === 'edificacion') {
+    if (nivelesDe(v.edificacion).indexOf(v.nivel) === -1) v.nivel = '';
   }
 }
 
 
 /***********************
- * VALIDACIÓN
+ * REGISTRAR
  ***********************/
 
-function validarFormulario() {
+function camposDelPaso(n) {
+  return CAMPOS.filter(function(c) { return c.paso === n; });
+}
 
-  const obligatorios = [
-    ['sede', 'Sede'],
-    ['edificacion', 'Edificación'],
-    ['nivel', 'Nivel'],
-    ['tipoUbicacion', 'Tipo de ubicación'],
-    ['areaZona', 'Área / Zona'],
-    ['tipoCamara', 'Tipo de cámara'],
-    ['estado', 'Estado'],
-    ['registradoPor', 'Registrado por']
-  ];
+function faltanDelPaso(n) {
+  return camposDelPaso(n).filter(function(c) { return c.req && vacio(S.reg[c.k]); });
+}
 
-  quitarErrores();
+function pintarRegistro() {
+  const v = S.reg;
+  const caja = $('formRegistro');
 
-  const faltan = obligatorios.filter(function(par) {
-    return !valor(par[0]);
+  if (!v.edificacion && v.sede) elegir(v, 'sede', v.sede);
+
+  const html = '<div class="bloque">' + htmlCampos(camposDelPaso(S.paso).filter(function(c) {
+    return ['Dónde está', 'La cámara', 'Estado', 'Quién registra'].indexOf(c.secc) !== -1;
+  }), v, S.errores, 'r_') + '</div>';
+
+  const resto = camposDelPaso(S.paso).filter(function(c) {
+    return ['Dónde está', 'La cámara', 'Estado', 'Quién registra'].indexOf(c.secc) === -1;
   });
 
-  if (!faltan.length) {
-    return true;
+  let html2 = htmlCampos(resto, v, S.errores, 'r_');
+
+  if (S.paso === 4) {
+    html2 = '<div class="secc"><span>Fotografía de la cámara</span><span class="opc">opcional</span></div>' +
+      '<div class="tarjeta"><button type="button" class="foto-btn" data-accion="fotoRegistro">' +
+      ico('photo_camera') + (S.regFoto ? 'Cambiar foto' : 'Tomar foto') + '</button>' +
+      (S.regFoto ? '<img class="foto-prev" src="' + S.regFoto + '" alt="Vista previa de la foto">' : '') +
+      '</div>' + html2;
   }
 
-  faltan.forEach(function(par) {
-    marcarError(par[0], 'Falta completar: ' + par[1]);
+  caja.innerHTML = html + (html2 ? '<div class="bloque">' + html2 + '</div>' : '');
+
+  // Progreso
+  const hechos = PASOS.filter(function(p, i) { return !faltanDelPaso(i + 1).length; }).length;
+  const falta = faltanDelPaso(S.paso);
+
+  $('anilloN').textContent = S.paso + '/' + PASOS.length;
+  $('anilloVa').style.strokeDashoffset = String(150.8 * (1 - hechos / PASOS.length));
+  $('pasoNombre').textContent = 'Paso ' + S.paso + ': ' + PASOS[S.paso - 1];
+  $('pasoFalta').textContent = falta.length
+    ? 'Falta: ' + falta.map(function(c) { return c.l.toLowerCase(); }).join(', ')
+    : (hechos === PASOS.length ? 'Todo listo para guardar.' : 'Este paso está completo.');
+
+  $('pasos').innerHTML = PASOS.map(function(p, i) {
+    const n = i + 1;
+    const clase = n === S.paso ? 'actual' : (!faltanDelPaso(n).length ? 'hecho' : '');
+    return '<button type="button" role="tab" class="' + clase + '" aria-selected="' + (n === S.paso) +
+      '" aria-label="Paso ' + n + ': ' + p + '" data-paso="' + n + '"></button>';
+  }).join('');
+
+  pintarAccion();
+}
+
+function guardarBorrador() {
+  ls.set('borrador', S.reg);
+}
+
+function irPaso(n) {
+  S.paso = Math.min(Math.max(n, 1), PASOS.length);
+  pintarRegistro();
+  window.scrollTo(0, 0);
+}
+
+function validarRegistro() {
+  S.errores = {};
+
+  CAMPOS.forEach(function(c) {
+    if (c.req && vacio(S.reg[c.k])) S.errores[c.k] = 'Falta completar: ' + c.l.toLowerCase();
   });
 
-  // Abre el paso donde está el primer campo que falta
-  irPaso(pasoDe(faltan[0][0]));
+  const faltan = Object.keys(S.errores);
 
-  mostrarMensaje(
-    'Completa lo marcado en rojo: ' +
-    faltan.map(function(par) { return par[1]; }).join(', ') + '.',
-    'error'
-  );
+  if (!faltan.length) return true;
 
-  const primero = document.getElementById(faltan[0][0]);
+  const primero = CAMPOS.filter(function(c) { return S.errores[c.k]; })[0];
+  irPaso(primero.paso);
+  sonarFalta();
+  toast('error', 'Falta completar ' + faltan.length + (faltan.length === 1 ? ' dato' : ' datos') + '. Están marcados en rojo.');
 
-  if (primero && !primero.classList.contains('con-botones')) {
-    primero.focus();
-  }
+  const campo = $('campo_r_' + primero.k);
+  if (campo) campo.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
   return false;
 }
 
-function limpiarSerial(serial) {
-  return String(serial || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-/**
- * Si el serial ya existe (en el inventario descargado o en los
- * pendientes de este celular) pregunta antes de guardar.
- */
 async function serialAceptado(serial) {
-
   const buscado = limpiarSerial(serial);
-
-  if (!buscado) {
-    return true;
-  }
+  if (!buscado) return true;
 
   let donde = '';
 
-  (registrosCache || []).some(function(registro) {
-
-    if (limpiarSerial(registro.serial) === buscado) {
-      donde = registro.id + ' (' + registro.nivel + ', ' +
-              registro.areaZona + ')';
+  (registros || []).some(function(r) {
+    if (limpiarSerial(r.serial) === buscado) {
+      donde = r.id + ' (' + r.nivel + ', ' + r.areaZona + ')';
       return true;
     }
-
     return false;
   });
 
   if (!donde) {
-
-    const pendientes = await listarPendientes();
-
-    pendientes.some(function(p) {
-
-      if (limpiarSerial(p.datos.serial) === buscado) {
-        donde = 'una cámara pendiente por subir (' + p.datos.nivel +
-                ', ' + p.datos.areaZona + ')';
+    (await listarPendientes()).some(function(p) {
+      if (!esMtto(p) && limpiarSerial(p.datos.serial) === buscado) {
+        donde = 'una cámara pendiente por subir (' + p.datos.nivel + ', ' + p.datos.areaZona + ')';
         return true;
       }
-
       return false;
     });
   }
 
-  if (!donde) {
-    return true;
-  }
+  return !donde || window.confirm('El serial ' + serial + ' ya está registrado en ' + donde + '.\n\n¿Guardar esta cámara de todas formas?');
+}
 
-  return window.confirm(
-    'El serial ' + serial + ' ya está registrado en ' + donde +
-    '.\n\n¿Guardar esta cámara de todas formas?'
-  );
+let guardando = false;
+
+async function guardarCamara() {
+  if (guardando) return;
+  guardando = true;
+  prepararSonido();
+
+  try {
+    if (!validarRegistro() || !(await serialAceptado(S.reg.serial))) return;
+
+    const datos = { uuid: nuevoUuid(), fechaCaptura: Date.now(), fotografia: S.regFoto || '' };
+
+    CAMPOS.forEach(function(c) { datos[c.k] = String(S.reg[c.k] || '').trim(); });
+
+    await guardarPendiente({ uuid: datos.uuid, tipo: 'camara', datos: datos, intentos: 0 });
+
+    // Se conserva el lugar y quien registra para seguir con la siguiente cámara
+    S.reg = {
+      sede: S.reg.sede, edificacion: S.reg.edificacion, nivel: S.reg.nivel,
+      subzona: S.reg.subzona, registradoPor: S.reg.registradoPor
+    };
+    S.regFoto = '';
+    S.errores = {};
+    guardarBorrador();
+    irPaso(1);
+
+    sonarListo();
+    toast('cloud_upload', 'Cámara guardada en el celular. Subiendo…');
+    await pintarEstado();
+
+    const r = await sincronizar();
+
+    if (r.ids[datos.uuid]) {
+      toast('cloud_done', 'Cámara registrada. ID asignado: ' + r.ids[datos.uuid], 6000);
+    } else if (r.errores[datos.uuid]) {
+      sonarError();
+      toast('error', 'Quedó en el celular, pero el servidor la rechazó: ' + r.errores[datos.uuid], 8000);
+    } else {
+      toast('cloud_off', 'Sin señal: la cámara quedó en este celular y se subirá sola cuando vuelva la conexión.', 6000);
+    }
+  } catch (e) {
+    sonarError();
+    toast('error', 'No se pudo guardar en el celular: ' + e.message, 8000);
+  } finally {
+    guardando = false;
+  }
 }
 
 
@@ -715,347 +661,155 @@ async function serialAceptado(serial) {
 
 let sincronizando = false;
 let verPendientes = false;
-
-// Resultado de las subidas hechas desde que se abrió la app
-const idsSubidos = {};      // uuid -> ID asignado
-const erroresSubida = {};   // uuid -> motivo del rechazo
-
+const idsSubidos = {};
+const erroresSubida = {};
 let turnoSubida = Promise.resolve();
 
-/**
- * Sube los pendientes. Si ya hay una subida en curso, espera a que
- * termine y vuelve a revisar (nunca corren dos a la vez).
- * Devuelve { ids, errores, subidas, sinRed }.
- */
 function sincronizar() {
-
   turnoSubida = turnoSubida.then(subirPendientes, subirPendientes);
-
   return turnoSubida;
 }
 
-/**
- * Sube los pendientes uno por uno, del más antiguo al más nuevo.
- */
 async function subirPendientes() {
+  const resultado = { ids: idsSubidos, errores: erroresSubida, subidas: 0, sinRed: false };
 
-  const resultado = {
-    ids: idsSubidos,
-    errores: erroresSubida,
-    subidas: 0,
-    sinRed: false
-  };
-
-  if (!codigoAcceso()) {
-    return resultado;
-  }
+  if (!codigoAcceso()) return resultado;
 
   sincronizando = true;
   pintarEstado();
 
   const intentados = {};
-  let subidas = 0;
 
   try {
-
     while (true) {
-
-      // Se vuelve a leer la lista por si se guardó otra cámara mientras tanto
-      const lista = await listarPendientes();
-
-      const pendiente = lista.filter(function(p) {
-        return !intentados[p.uuid];
-      })[0];
-
-      if (!pendiente) {
-        break;
-      }
-
-      intentados[pendiente.uuid] = true;
+      const p = (await listarPendientes()).filter(function(x) { return !intentados[x.uuid]; })[0];
+      if (!p) break;
+      intentados[p.uuid] = true;
 
       try {
-
-        const respuesta =
-          await llamar('registrar', { datos: pendiente.datos }, 120000);
-
-        await borrarPendiente(pendiente.uuid);
-
-        idsSubidos[pendiente.uuid] = respuesta.id;
-        delete erroresSubida[pendiente.uuid];
-
-        resultado.ultimoId = respuesta.id;
-        subidas++;
-
+        const r = await llamar(esMtto(p) ? 'mantenimiento' : 'registrar', { datos: p.datos }, 120000);
+        await borrarPendiente(p.uuid);
+        idsSubidos[p.uuid] = r.id || 'ok';
+        delete erroresSubida[p.uuid];
+        resultado.ultimoId = r.id;
+        resultado.subidas++;
       } catch (e) {
-
-        if (e.sinRed) {
-          resultado.sinRed = true;
-          break;
-        }
-
-        if (e.codigo === 'ACCESO') {
-          accesoRechazado();
-          break;
-        }
-
-        // El servidor la rechazó: se conserva y se sigue con las demás
-        pendiente.error = e.message;
-        pendiente.intentos = (pendiente.intentos || 0) + 1;
-
-        await guardarPendiente(pendiente);
-
-        erroresSubida[pendiente.uuid] = e.message;
+        if (e.sinRed) { resultado.sinRed = true; break; }
+        if (e.codigo === 'ACCESO') { accesoRechazado(); break; }
+        p.error = e.message;
+        p.intentos = (p.intentos || 0) + 1;
+        await guardarPendiente(p);
+        erroresSubida[p.uuid] = e.message;
       }
     }
-
   } catch (e) {
-
     console.error('Error al subir pendientes', e);
-
   } finally {
     sincronizando = false;
   }
 
-  resultado.subidas = subidas;
-
-  if (subidas > 0) {
-    await descargarInventario();
-  }
+  if (resultado.subidas > 0) await descargarInventario();
 
   await pintarEstado();
-
   return resultado;
 }
 
 async function subirAhora() {
-
-  ocultarMensaje();
-
-  const resultado = await sincronizar();
-  const subidas = resultado.subidas;
+  const r = await sincronizar();
   const quedan = (await listarPendientes()).length;
 
-  if (resultado.sinRed) {
-
-    mostrarMensaje(
-      'Todavía no hay señal. Las cámaras siguen guardadas en este celular.',
-      'error'
-    );
-
-  } else if (subidas > 0) {
-
-    mostrarMensaje(
-      subidas === 1
-        ? 'Se subió 1 cámara. ID asignado: ' + resultado.ultimoId
-        : 'Se subieron ' + subidas + ' cámaras.',
-      'success'
-    );
-
-  } else if (quedan > 0) {
-
-    mostrarMensaje(
-      'El servidor rechazó los pendientes. Toca "Ver" para revisar el motivo.',
-      'error'
-    );
-  }
-}
-
-function alternarPendientes() {
-  verPendientes = !verPendientes;
-  pintarEstado();
+  if (r.sinRed) toast('cloud_off', 'Todavía no hay señal. Todo sigue guardado en este celular.');
+  else if (r.subidas > 0) toast('cloud_done', r.subidas === 1 ? 'Se subió 1 registro.' : 'Se subieron ' + r.subidas + ' registros.');
+  else if (quedan > 0) toast('error', 'El servidor rechazó los pendientes. Toca "Ver" para revisar el motivo.', 6000);
 }
 
 async function descartarPendiente(uuid) {
-
-  const seguro = window.confirm(
-    '¿Descartar esta cámara pendiente? Se borrará de este celular y ' +
-    'no se subirá.'
-  );
-
-  if (!seguro) {
-    return;
-  }
-
+  if (!window.confirm('¿Descartar este registro pendiente? Se borrará de este celular y no se subirá.')) return;
   await borrarPendiente(uuid);
-  pintarEstado();
+  await pintarEstado();
+  pintarVista();
 }
 
-/**
- * Barra de estado: señal y cámaras pendientes.
- */
 async function pintarEstado() {
+  try { pendientesCache = await listarPendientes(); } catch (e) { pendientesCache = []; }
 
-  let pendientes = [];
-
-  try {
-    pendientes = await listarPendientes();
-  } catch (e) {
-    console.error(e);
-  }
-
-  const barra = document.getElementById('barraEstado');
-  const texto = document.getElementById('estadoTexto');
-  const tarjeta = document.getElementById('tarjetaPendientes');
-
-  const cuantas = pendientes.length;
+  const cuantas = pendientesCache.length;
   const sinSenal = navigator.onLine === false;
+  const franja = $('franja');
+  const hayError = pendientesCache.some(function(p) { return p.error; });
 
-  const icono = document.getElementById('estadoIco');
+  let clase = 'ok';
+  let icono = 'cloud_done';
+  let texto = 'En línea · todo subido';
 
-  barra.style.display = 'flex';
-  barra.classList.toggle('ok', cuantas === 0 && !sinSenal);
+  const frase = cuantas === 1 ? '1 registro pendiente por subir' : cuantas + ' registros pendientes por subir';
 
-  if (cuantas === 0 && !sinSenal) {
-    icono.innerHTML = IC.ok;
-    texto.textContent = 'En línea · todo subido';
-    document.getElementById('btnSubir').classList.add('hidden');
-    document.getElementById('btnVerPendientes').classList.add('hidden');
-    tarjeta.classList.add('hidden');
-    verPendientes = false;
-    return;
-  }
+  if (sincronizando && cuantas) { clase = 'sube'; icono = 'sync'; texto = 'Subiendo… ' + frase; }
+  else if (hayError) { clase = 'error'; icono = 'error'; texto = frase + ' · el servidor rechazó alguno'; }
+  else if (sinSenal) { clase = 'espera'; icono = 'cloud_off'; texto = cuantas ? 'Sin señal · ' + frase : 'Sin señal: lo que guardes queda en este celular.'; }
+  else if (cuantas) { clase = 'espera'; icono = 'cloud_upload'; texto = frase; }
 
-  icono.innerHTML = sincronizando ? IC.subir : (sinSenal ? IC.sinSenal : IC.alerta);
+  franja.className = 'franja ' + clase;
+  $('franjaIco').textContent = icono;
+  $('franjaTexto').textContent = texto;
+  $('btnSubir').classList.toggle('oculto', !cuantas || sincronizando);
+  $('btnVerPendientes').classList.toggle('oculto', !cuantas);
+  $('btnVerPendientes').textContent = verPendientes ? 'Ocultar' : 'Ver';
 
-  const frase = cuantas === 1
-    ? '1 cámara pendiente por subir'
-    : cuantas + ' cámaras pendientes por subir';
+  if (!cuantas) verPendientes = false;
 
-  if (sincronizando) {
-    texto.textContent = 'Subiendo... ' + frase;
-  } else if (cuantas === 0) {
-    texto.textContent =
-      'Sin señal: lo que registres se guarda en este celular.';
-  } else if (sinSenal) {
-    texto.textContent = 'Sin señal · ' + frase;
-  } else {
-    texto.textContent = '' + frase;
-  }
+  const lista = $('listaPendientes');
+  lista.classList.toggle('oculto', !verPendientes);
 
-  document.getElementById('btnSubir')
-    .classList.toggle('hidden', cuantas === 0);
-  document.getElementById('btnVerPendientes')
-    .classList.toggle('hidden', cuantas === 0);
-
-  bloquearBoton('btnSubir', sincronizando);
-
-  document.getElementById('btnVerPendientes').textContent =
-    verPendientes ? 'Ocultar' : 'Ver';
-
-  // Lista de pendientes
-  tarjeta.classList.toggle('hidden', !verPendientes || cuantas === 0);
-
-  const lista = document.getElementById('listaPendientes');
-
-  lista.innerHTML = '';
-
-  pendientes.forEach(function(p) {
-
-    const div = document.createElement('div');
-    div.className = 'pendiente';
-
-    agregarLinea(div, p.datos.nivel + ' — ' + p.datos.areaZona, true);
-    agregarLinea(div, p.datos.sede + ' — ' + p.datos.edificacion);
-    agregarLinea(
-      div,
-      'Registrada el ' + formatoFecha(p.datos.fechaCaptura) +
-      ' por ' + p.datos.registradoPor
-    );
-
-    if (p.error) {
-      const fallo = document.createElement('span');
-      fallo.className = 'fallo';
-      fallo.textContent = 'El servidor la rechazó: ' + p.error;
-      div.appendChild(fallo);
-      div.appendChild(document.createElement('br'));
-    }
-
-    const boton = document.createElement('button');
-    boton.textContent = 'Descartar';
-    boton.onclick = function() { descartarPendiente(p.uuid); };
-
-    div.appendChild(boton);
-    lista.appendChild(div);
-  });
-}
-
-function formatoFecha(milisegundos) {
-
-  const f = new Date(milisegundos);
-
-  function dos(n) { return String(n).padStart(2, '0'); }
-
-  return dos(f.getDate()) + '/' + dos(f.getMonth() + 1) + '/' +
-         f.getFullYear() + ' ' + dos(f.getHours()) + ':' +
-         dos(f.getMinutes());
+  lista.innerHTML = pendientesCache.map(function(p) {
+    const d = p.datos;
+    const titulo = esMtto(p)
+      ? 'Mantenimiento · ' + d.idCamara + ' · ' + d.tipo
+      : 'Cámara nueva · ' + d.nivel + ' · ' + d.areaZona;
+    const sub = fechaHora(d.fechaCaptura) + ' · ' + (esMtto(p) ? d.tecnico : d.registradoPor);
+    return '<div class="mtto pend"><div class="ico">' + ico(esMtto(p) ? 'build' : 'videocam') + '</div><div class="txt">' +
+      '<b>' + esc(titulo) + '</b><div class="d">' + esc(sub) + '</div>' +
+      (p.error ? '<div class="tags"><span class="tag mal">' + ico('error') + 'Rechazado: ' + esc(p.error) + '</span></div>' : '') +
+      '</div><button type="button" class="btn-red" aria-label="Descartar" data-descartar="' + esc(p.uuid) + '">' + ico('delete') + '</button></div>';
+  }).join('');
 }
 
 
 /***********************
- * INVENTARIO (copia en el celular)
+ * COPIA DEL INVENTARIO
  ***********************/
 
-let registrosCache = null;
-let fechaCache = '';
-let temporizadorBusqueda = null;
 let descargando = null;
 
-const MAX_RESULTADOS = 150;
-
 async function cargarCopiaLocal() {
-
   try {
-
     const copia = await leerDato('inventario');
-
     if (copia) {
-      registrosCache = copia.registros || [];
-      fechaCache = copia.fecha || '';
+      registros = copia.registros || [];
+      historial = copia.historial || [];
+      fechaCopia = copia.fecha || '';
     }
-
   } catch (e) {
     console.error(e);
   }
-
   actualizarMarcas();
 }
 
-/**
- * Trae el inventario del servidor y lo guarda en el celular.
- * Devuelve true si se pudo. Nunca lanza error.
- */
 function descargarInventario() {
-
-  if (descargando) {
-    return descargando;
-  }
+  if (descargando) return descargando;
 
   descargando = (async function() {
-
     try {
-
-      const respuesta = await llamar('inventario', {}, 60000);
-
-      registrosCache = respuesta.registros || [];
-      fechaCache = respuesta.fecha || '';
-
-      await guardarDato('inventario', {
-        registros: registrosCache,
-        fecha: fechaCache
-      });
-
+      const r = await llamar('inventario', {}, 60000);
+      registros = r.registros || [];
+      historial = r.historial || [];
+      fechaCopia = r.fecha || '';
+      await guardarDato('inventario', { registros: registros, historial: historial, fecha: fechaCopia });
       actualizarMarcas();
-
       return true;
-
     } catch (e) {
-
-      if (e.codigo === 'ACCESO') {
-        accesoRechazado();
-      }
-
+      if (e.codigo === 'ACCESO') accesoRechazado();
       return false;
-
     } finally {
       descargando = null;
     }
@@ -1064,1192 +818,898 @@ function descargarInventario() {
   return descargando;
 }
 
-function pintarFechaInventario(actualizando) {
-
-  const elemento = document.getElementById('fechaInventario');
-
-  if (!registrosCache) {
-    elemento.textContent = actualizando
-      ? 'Descargando inventario...'
-      : 'Aún no se ha descargado el inventario en este celular. ' +
-        'Se descargará cuando haya señal.';
-    return;
-  }
-
-  elemento.textContent =
-    'Inventario del ' + fechaCache +
-    (actualizando ? ' · actualizando...' : '');
-}
-
-// Cuántas letras hay que cambiar para pasar de un texto al otro
 function distancia(a, b) {
-
   let fila = [];
-
   for (let j = 0; j <= b.length; j++) fila[j] = j;
-
   for (let i = 1; i <= a.length; i++) {
-
     const nueva = [i];
-
     for (let j = 1; j <= b.length; j++) {
-      nueva[j] = Math.min(
-        fila[j] + 1,
-        nueva[j - 1] + 1,
-        fila[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
-      );
+      nueva[j] = Math.min(fila[j] + 1, nueva[j - 1] + 1, fila[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
     }
-
     fila = nueva;
   }
-
   return fila[b.length];
 }
 
-/**
- * Sugerencias de marca: las de base más las que ya se usan en el
- * inventario. No se sugieren las que parecen un error de digitación
- * de otra marca (por ejemplo "HiLoook").
- */
+/** Marcas sugeridas: las de base y las que se repiten en el inventario (sin errores de digitación). */
 function actualizarMarcas() {
-
-  function clave(texto) {
-    return String(texto || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  }
+  function clave(t) { return String(t || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
 
   const vistas = {};
   const marcas = [];
-
-  MARCAS_BASE.forEach(function(marca) {
-    vistas[clave(marca)] = true;
-    marcas.push(marca);
-  });
-
   const conteo = {};
 
-  (registrosCache || []).forEach(function(registro) {
+  MARCAS_BASE.forEach(function(m) { vistas[clave(m)] = true; marcas.push(m); });
 
-    const marca = String(registro.marca || '').trim();
-    const k = clave(marca);
-
+  (registros || []).forEach(function(r) {
+    const m = String(r.marca || '').trim();
+    const k = clave(m);
     if (!k || vistas[k]) return;
-
-    if (!conteo[k]) conteo[k] = { nombre: marca, veces: 0 };
+    if (!conteo[k]) conteo[k] = { nombre: m, veces: 0 };
     conteo[k].veces++;
   });
 
-  // Las más usadas primero; se descartan las que aparecen menos de
-  // 3 veces o se parecen demasiado a una marca ya aceptada
   Object.keys(conteo)
     .sort(function(a, b) { return conteo[b].veces - conteo[a].veces; })
     .forEach(function(k) {
-
       if (conteo[k].veces < 3) return;
-
-      const parecida = Object.keys(vistas).some(function(otra) {
-        return distancia(k, otra) <= 2;
-      });
-
-      if (parecida) return;
-
+      if (Object.keys(vistas).some(function(o) { return distancia(k, o) <= 2; })) return;
       vistas[k] = true;
       marcas.push(conteo[k].nombre);
     });
 
-  const lista = document.getElementById('listaMarcas');
+  $('listaMarcas').innerHTML = marcas.map(function(m) { return '<option value="' + esc(m) + '">'; }).join('');
+}
 
-  lista.innerHTML = '';
+/** Mantenimientos de una cámara: los del servidor y los pendientes de este celular. */
+function mttosDe(id) {
+  const k = String(id).trim();
 
-  marcas.forEach(function(marca) {
-    const option = document.createElement('option');
-    option.value = marca;
-    lista.appendChild(option);
-  });
+  const locales = pendientesCache.filter(function(p) { return esMtto(p) && String(p.datos.idCamara).trim() === k; })
+    .map(function(p) {
+      const d = p.datos;
+      return {
+        pendiente: true, error: p.error, orden: d.fechaCaptura, fecha: fechaHora(d.fechaCaptura),
+        tipo: d.tipo, actividades: (d.actividades || []).join(', '), estadoImagen: d.estadoImagen,
+        huboFalla: !!d.huboFalla, falla: d.falla, repuesto: d.repuesto, diasFuera: d.diasFuera,
+        tecnico: d.tecnico, observaciones: d.observaciones, tieneFoto: !!d.foto
+      };
+    });
+
+  const delServidor = historial.filter(function(h) { return String(h.idCamara).trim() === k; })
+    .map(function(h) { return Object.assign({}, h, { fecha: fecha12(h.fecha), orden: h.orden || msDeFecha(h.fecha) }); });
+
+  return locales.concat(delServidor).sort(function(a, b) { return b.orden - a.orden; });
+}
+
+/** Fecha del último mantenimiento conocido (historial o campo de la hoja). */
+function ultimoMtto(r) {
+  const m = mttosDe(r.id)[0];
+  if (m) return m.fecha.split(' ')[0];
+  return fechaCorta(r.ultimoMantenimiento);
 }
 
 
 /***********************
  * BUSCAR
- * Se busca en la copia del celular, así que funciona sin señal.
  ***********************/
 
-async function cargarRegistros() {
+const FILTROS = [
+  ['', 'Todas', function() { return true; }],
+  ['novedad', 'Con novedad', function(r) { return igual(r.estado, 'Operativa con novedad') || igual(r.estado, 'Intermitente') || igual(r.estado, 'En mantenimiento'); }],
+  ['fuera', 'Fuera de servicio', function(r) { return igual(r.estado, 'Fuera de servicio'); }],
+  ['sinmtto', 'Sin mantenimiento', function(r) { return !ultimoMtto(r); }],
+  ['conmtto', 'Con mantenimiento', function(r) { return !!ultimoMtto(r); }]
+];
 
-  filtrarResultados();
-  pintarFechaInventario(true);
-
-  await descargarInventario();
-
-  pintarFechaInventario(false);
-  filtrarResultados();
+function claseFila(r) {
+  if (igual(r.estado, 'Fuera de servicio')) return 'urgente';
+  if (igual(r.estado, 'Operativa con novedad') || igual(r.estado, 'Intermitente') || igual(r.estado, 'En mantenimiento')) return 'atender';
+  return '';
 }
 
-function buscar() {
-
-  clearTimeout(temporizadorBusqueda);
-
-  temporizadorBusqueda = setTimeout(filtrarResultados, 250);
+function tagEstado(estado) {
+  const e = String(estado || '').trim();
+  if (igual(e, 'Operativa')) return '<span class="tag ok">' + ico('check') + 'Operativa</span>';
+  if (igual(e, 'Fuera de servicio')) return '<span class="tag mal">' + ico('error') + 'Fuera de servicio</span>';
+  if (e) return '<span class="tag av">' + ico('warning') + esc(e) + '</span>';
+  return '<span class="tag">Sin estado</span>';
 }
 
-function filtrarResultados() {
+function pintarBuscar() {
+  const lista = $('resultados');
+  const contador = $('contador');
 
-  const texto = valor('terminoBusqueda').toLowerCase();
-
-  let resultados = registrosCache || [];
-
-  if (texto) {
-
-    resultados = resultados.filter(function(registro) {
-
-      return Object.keys(registro).some(function(campo) {
-
-        return String(registro[campo] || '')
-          .toLowerCase()
-          .includes(texto);
-      });
-    });
-  }
-
-  pintarFiltros(resultados);
-
-  if (filtroEstado) {
-    resultados = resultados.filter(function(registro) {
-      return igual(registro.estado, filtroEstado);
-    });
-  }
-
-  mostrarResultados(resultados);
-}
-
-function mostrarResultados(resultados) {
-
-  const contenedor = document.getElementById('resultados');
-  const contador = document.getElementById('contadorResultados');
-
-  contenedor.innerHTML = '';
-
-  if (!registrosCache) {
+  if (!registros) {
+    $('filtros').innerHTML = '';
     contador.textContent = '';
+    lista.innerHTML = '<div class="vacio"><b>Aún no hay inventario en este celular</b>Se descarga solo cuando hay señal.</div>';
+    pintarDetalle();
     return;
   }
 
-  if (!resultados.length) {
-    contador.textContent = 'No se encontraron registros.';
-    return;
-  }
+  const texto = S.texto.trim().toLowerCase();
 
-  contador.textContent =
-    resultados.length === 1
-      ? '1 cámara. Toca la tarjeta para editarla.'
-      : resultados.length + ' cámaras. Toca una para editarla.';
-
-  if (resultados.length > MAX_RESULTADOS) {
-    contador.textContent +=
-      ' Se muestran las primeras ' + MAX_RESULTADOS +
-      '; escribe algo para reducir la lista.';
-  }
-
-  resultados.slice(0, MAX_RESULTADOS).forEach(function(registro) {
-
-    const div = document.createElement('div');
-
-    div.className = 'result';
-
-    const titulo = document.createElement('div');
-    titulo.className = 'result-titulo';
-
-    const id = document.createElement('strong');
-    id.textContent = registro.id;
-
-    titulo.appendChild(id);
-    titulo.appendChild(etiquetaEstado(registro.estado));
-    div.appendChild(titulo);
-
-    agregarLinea(div, registro.nivel + ' · ' + registro.areaZona);
-
-    const sede = String(registro.sede || '');
-    const edificacion = String(registro.edificacion || '');
-
-    const pie = document.createElement('small');
-
-    pie.textContent =
-      (sede && edificacion.indexOf(sede) === -1 ? sede + ' — ' : '') +
-      edificacion +
-      (registro.tipoCamara ? ' · ' + registro.tipoCamara : '');
-
-    div.appendChild(pie);
-
-    div.setAttribute('role', 'button');
-    div.tabIndex = 0;
-
-    div.onclick = function() {
-      cargarEdicion(registro);
-    };
-
-    div.onkeydown = function(evento) {
-      if (evento.key === 'Enter') cargarEdicion(registro);
-    };
-
-    contenedor.appendChild(div);
+  let base = registros.filter(function(r) {
+    if (S.sede && !igual(r.sede, S.sede)) return false;
+    if (!texto) return true;
+    return Object.keys(r).some(function(k) { return String(r[k] || '').toLowerCase().indexOf(texto) !== -1; });
   });
+
+  $('filtros').innerHTML =
+    ['', 'Barranquilla', 'Baranoa'].map(function(s) {
+      return '<button type="button" class="chip" aria-pressed="' + (S.sede === s) + '" data-sede="' + s + '">' +
+        (S.sede === s ? ico('check') : '') + (s || 'Las dos sedes') + '</button>';
+    }).join('') +
+    FILTROS.slice(1).map(function(f) {
+      const n = base.filter(f[2]).length;
+      return '<button type="button" class="chip" aria-pressed="' + (S.filtro === f[0]) + '" data-filtro="' + f[0] + '">' +
+        (S.filtro === f[0] ? ico('check') : '') + esc(f[1]) + ' · ' + n + '</button>';
+    }).join('');
+
+  const filtro = FILTROS.filter(function(f) { return f[0] === S.filtro; })[0] || FILTROS[0];
+  const res = base.filter(filtro[2]);
+
+  const MAX = 150;
+  contador.textContent = (res.length === 1 ? '1 cámara' : res.length + ' cámaras') +
+    (res.length > MAX ? ' · se muestran las primeras ' + MAX + '; escribe algo para reducir la lista' : '') +
+    ' · inventario del ' + fecha12(fechaCopia);
+
+  if (!res.length) {
+    lista.innerHTML = '<div class="vacio"><b>No hay cámaras con ese filtro</b>Prueba con otra palabra o quita el filtro.</div>';
+  } else {
+    lista.innerHTML = res.slice(0, MAX).map(function(r) {
+      const ult = ultimoMtto(r);
+      return '<button type="button" class="fila toque ' + claseFila(r) + (S.sel === r.id ? ' sel' : '') + '" data-camara="' + esc(r.id) + '">' +
+        '<div class="txt"><div class="t1"><span class="num">' + esc(r.id) + '</span>' + tagEstado(r.estado) + '</div>' +
+        '<div class="t2">' + esc([r.nivel, r.areaZona].filter(String).join(' · ')) + '</div>' +
+        '<div class="t3">' + esc([r.edificacion, r.tipoCamara].filter(String).join(' · ')) +
+        ' · ' + (ult ? 'Últ. mant. ' + esc(ult) : 'Sin mantenimiento') + '</div></div>' +
+        ico('chevron_right') + '</button>';
+    }).join('');
+  }
+
+  pintarDetalle();
 }
 
-function agregarLinea(contenedor, texto, negrita) {
+function abrirCamara(id) {
+  if (!S.sel && window.innerWidth < 1024) {
+    try { history.pushState({ ficha: 1 }, ''); } catch (e) { /* nada */ }
+  }
+  S.sel = id;
+  S.modo = 'ficha';
+  pintarBuscar();
+  if (window.innerWidth < 1024) window.scrollTo(0, 0);
+}
 
-  const linea = document.createElement(negrita ? 'strong' : 'span');
+function cerrarCamara(desdeHistorial) {
+  if (!desdeHistorial && history.state && history.state.ficha) { history.back(); return; }
+  S.sel = null;
+  S.modo = 'ficha';
+  pintarBuscar();
+}
 
-  linea.textContent = texto;
-
-  contenedor.appendChild(linea);
-  contenedor.appendChild(document.createElement('br'));
+function camaraSel() {
+  return (registros || []).filter(function(r) { return r.id === S.sel; })[0] || null;
 }
 
 
 /***********************
- * EDICIÓN (necesita señal)
+ * FICHA DE LA CÁMARA
  ***********************/
 
-function cargarEdicion(registro) {
+function pintarDetalle() {
+  const caja = $('detalle');
+  const lista = document.querySelector('#vBuscar .col-lista');
+  const r = camaraSel();
 
-  ocultarMensaje();
+  // En el celular la ficha reemplaza a la lista; en el PC van lado a lado
+  lista.classList.toggle('oculto', !!r);
 
-  // Mientras se edita se oculta la lista para no tener que bajar
-  document.getElementById('tarjetaBusqueda').classList.add('hidden');
-  document.getElementById('editar').classList.remove('hidden');
-
-  document.getElementById('tituloEdicion').textContent =
-    'Editar cámara ' + registro.id;
-
-  document.getElementById('editId').value = registro.id;
-
-  setSelect('editSede', registro.sede);
-
-  actualizarEdificacionesEdicion(
-    registro.sede,
-    registro.edificacion,
-    registro.nivel
-  );
-
-  setSelect('editSubzona', registro.subzona);
-  setValue('editDependencia', registro.dependencia);
-  setSelect('editTipoUbicacion', registro.tipoUbicacion);
-  setValue('editAreaZona', registro.areaZona);
-  setValue('editReferencia', registro.referencia);
-  setSelect('editTipoCamara', registro.tipoCamara);
-  setValue('editMarca', registro.marca);
-  setValue('editModelo', registro.modelo);
-  setValue('editSerial', registro.serial);
-  setSelect('editVisionNocturna', registro.visionNocturna);
-  setSelect('editAudio', registro.audio);
-  setSelect('editEstado', registro.estado);
-  setSelect('editEstadoFisico', registro.estadoFisico);
-  setSelect('editEstadoCableado', registro.estadoCableado);
-  setValue('editUltimoMantenimiento', registro.ultimoMantenimiento);
-  setValue('editProximoMantenimiento', registro.proximoMantenimiento);
-  setValue('editResponsable', registro.responsable);
-  setValue('editObservaciones', registro.observaciones);
-
-  // Fotografía
-  document.getElementById('editFotografia').value = '';
-  document.getElementById('editPreview').classList.add('hidden');
-
-  const enlace = document.getElementById('editFotoActual');
-  const tieneFoto = /^https:\/\//.test(registro.fotografia || '');
-
-  if (tieneFoto) {
-    enlace.href = registro.fotografia;
-  } else {
-    enlace.removeAttribute('href');
-  }
-
-  enlace.classList.toggle('hidden', !tieneFoto);
-  document.getElementById('editSinFoto')
-    .classList.toggle('hidden', tieneFoto);
-
-  document.getElementById('editRegistro').textContent =
-    'Registrada por ' + (registro.registradoPor || 'sin dato') +
-    (registro.fechaRegistro ? ' el ' + registro.fechaRegistro : '') +
-    '. Para guardar cambios se necesita señal.';
-
-  uiRefrescar();
-
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-function actualizarEdificacionesEdicion(sede, edificacion, nivel) {
-
-  llenarSelect(
-    document.getElementById('editEdificacion'),
-    EDIFICACIONES_POR_SEDE[sede] || [],
-    false
-  );
-
-  if (edificacion !== undefined) {
-    setSelect('editEdificacion', edificacion);
-  }
-
-  actualizarNivelesEdicion(valor('editEdificacion'), nivel);
-}
-
-function actualizarNivelesEdicion(edificacion, nivel) {
-
-  llenarSelect(
-    document.getElementById('editNivel'),
-    nivelesDe(edificacion),
-    false
-  );
-
-  if (nivel !== undefined) {
-    setSelect('editNivel', nivel);
-  }
-}
-
-function cambioSedeEdicion() {
-  actualizarEdificacionesEdicion(valor('editSede'));
-}
-
-function cambioEdificacionEdicion() {
-  actualizarNivelesEdicion(valor('editEdificacion'));
-}
-
-async function actualizar() {
-
-  if (guardando) {
+  if (!r) {
+    caja.innerHTML = '<div class="vacio solo-pc"><b>Elige una cámara</b>Su ficha y su historial aparecen aquí.</div>';
+    pintarAccion();
     return;
   }
 
-  ocultarMensaje();
+  if (S.modo === 'mtto') caja.innerHTML = htmlMtto(r);
+  else if (S.modo === 'editar') caja.innerHTML = htmlEditar(r);
+  else caja.innerHTML = htmlFicha(r);
 
-  if (!valor('editEdificacion') || !valor('editNivel')) {
-    mostrarMensaje('Debe completar: Edificación y Nivel', 'error');
+  pintarAccion();
+}
+
+function htmlCabDetalle(titulo, sub, volver) {
+  return '<div class="ficha-cab"><button type="button" class="btn-red ' + (volver === 'lista' ? 'volver-lista' : '') +
+    '" data-accion="' + (volver === 'lista' ? 'cerrarCamara' : 'verFicha') + '" aria-label="Volver">' + ico(volver === 'lista' ? 'arrow_back' : 'close') + '</button>' +
+    '<div class="txt"><h2>' + titulo + '</h2><small>' + sub + '</small></div></div>';
+}
+
+function htmlFicha(r) {
+  const mttos = mttosDe(r.id);
+
+  function dato(k, v) {
+    return '<div class="dato"><span>' + esc(k) + '</span><span>' + (vacio(v) ? '—' : esc(v)) + '</span></div>';
+  }
+
+  const datos = [
+    dato('Área / Zona', r.areaZona),
+    dato('Tipo de ubicación', r.tipoUbicacion),
+    dato('Subzona', r.subzona),
+    dato('Dependencia', r.dependencia),
+    dato('Tipo de cámara', r.tipoCamara),
+    dato('Marca · modelo', [r.marca, r.modelo].filter(String).join(' · ')),
+    dato('Serial', r.serial),
+    dato('Visión nocturna · audio', [r.visionNocturna, r.audio].filter(String).join(' · ')),
+    dato('IP', r.ip),
+    dato('NVR / DVR · canal', [r.nvr, r.canal].filter(String).join(' · ')),
+    dato('Estado físico', r.estadoFisico),
+    dato('Cableado', r.estadoCableado),
+    dato('Próximo mantenimiento', fechaCorta(r.proximoMantenimiento)),
+    dato('Responsable', r.responsable),
+    dato('Observaciones', r.observaciones),
+    dato('Inventariada por', [r.registradoPor, fecha12(r.fechaRegistro)].filter(String).join(' · '))
+  ].join('');
+
+  const faltan = [['IP', r.ip], ['NVR / DVR', r.nvr], ['canal', r.canal], ['serial', r.serial]]
+    .filter(function(p) { return vacio(p[1]); }).map(function(p) { return p[0]; });
+
+  const lista = mttos.length ? mttos.map(htmlMttoFila).join('') :
+    '<div class="vacio"><b>Aún no tiene mantenimientos</b>El primero que registres será su revisión inicial.</div>';
+
+  return '<div class="vista" style="padding:0">' +
+    htmlCabDetalle(esc(r.id), esc([r.sede, r.edificacion.replace(r.sede + ' - ', ''), r.nivel].filter(String).join(' · ')), 'lista') +
+    '<div>' + tagEstado(r.estado) + ' ' +
+      (mttos.length ? '<span class="tag rosa">' + ico('history') + mttos.length + (mttos.length === 1 ? ' registro' : ' registros') + '</span>'
+                    : '<span class="tag arena">' + ico('build') + 'Sin mantenimiento</span>') + '</div>' +
+    (faltan.length ? '<p class="nota">Para la hoja de vida falta: ' + esc(faltan.join(', ')) + '. Complétalo en "Editar datos".</p>' : '') +
+    '<div class="secc"><span>Historial</span><span class="opc">' + (mttos.length ? 'del más reciente al más antiguo' : '') + '</span></div>' +
+    '<div class="lista">' + lista + '</div>' +
+    '<div class="secc"><span>Datos de la cámara</span></div>' +
+    '<div class="grupo">' + datos + '</div>' +
+    '</div>';
+}
+
+function htmlMttoFila(m) {
+  const tags = [];
+
+  if (m.pendiente) tags.push(m.error ? '<span class="tag mal">' + ico('error') + 'Rechazado: ' + esc(m.error) + '</span>' : '<span class="tag av">' + ico('cloud_upload') + 'Pendiente por subir</span>');
+  if (m.estadoImagen) tags.push('<span class="tag ' + (igual(m.estadoImagen, 'Buena') ? 'ok' : (igual(m.estadoImagen, 'Regular') ? 'av' : 'mal')) + '">Imagen ' + esc(m.estadoImagen.toLowerCase()) + '</span>');
+  if (m.huboFalla && m.diasFuera !== '' && m.diasFuera !== undefined) tags.push('<span class="tag">' + esc(m.diasFuera) + (Number(m.diasFuera) === 1 ? ' día' : ' días') + ' fuera</span>');
+  if (m.tieneFoto) tags.push('<span class="tag rosa">' + ico('photo_camera') + 'Con foto</span>');
+
+  const detalle = [m.actividades, m.huboFalla ? 'Falla: ' + m.falla + (m.repuesto ? ' · Repuesto: ' + m.repuesto : '') : '', m.observaciones]
+    .filter(function(x) { return !vacio(x); }).join(' · ');
+
+  return '<div class="mtto ' + (m.pendiente ? 'pend' : (m.huboFalla ? 'falla' : '')) + '">' +
+    '<div class="ico">' + ico(m.huboFalla ? 'warning' : 'build', 'lleno') + '</div><div class="txt">' +
+    '<b>' + esc(m.tipo) + ' · ' + esc(m.fecha) + '</b>' +
+    '<div class="d">' + esc(detalle || 'Sin detalle') + '</div>' +
+    '<div class="d">' + esc(m.tecnico) + '</div>' +
+    (tags.length ? '<div class="tags">' + tags.join('') + '</div>' : '') +
+    '</div></div>';
+}
+
+
+/***********************
+ * REGISTRAR MANTENIMIENTO
+ ***********************/
+
+function abrirMtto() {
+  const r = camaraSel();
+  if (!r) return;
+
+  S.mt = {
+    tipo: mttosDe(r.id).length || ultimoMtto(r) ? 'Preventivo' : 'Revisión inicial',
+    actividades: [], imagen: '', falla: false, fallaTxt: '', repuesto: '', dias: '', obs: '',
+    foto: '', tecnico: ls.get('tecnico', ''), errores: {}, abierto: Date.now()
+  };
+  S.modo = 'mtto';
+  pintarDetalle();
+  window.scrollTo(0, 0);
+}
+
+function htmlMtto(r) {
+  const m = S.mt;
+  const e = m.errores;
+
+  function err(k) { return e[k] ? '<p class="error-campo">' + ico('error', 's') + esc(e[k]) + '</p>' : ''; }
+
+  const hechoActiv = m.actividades.length > 0;
+  const hechoImagen = !!m.imagen;
+  const hechoFalla = !m.falla || !vacio(m.fallaTxt);
+  const hechoTecnico = !vacio(m.tecnico);
+
+  return '<div class="vista" style="padding:0">' +
+    htmlCabDetalle('Mantenimiento', esc(r.id) + ' · ' + esc(fechaHora(m.abierto)), 'ficha') +
+
+    '<div class="secc"><span>Tipo</span></div>' +
+    '<div class="tarjeta" style="padding:8px"><div class="seg" role="group" aria-label="Tipo de mantenimiento">' +
+      TIPOS_MTTO.map(function(t) {
+        return '<button type="button" aria-pressed="' + (m.tipo === t) + '" data-mt="tipo" data-valor="' + esc(t) + '">' + esc(t) + '</button>';
+      }).join('') + '</div></div>' +
+
+    '<div class="secc"><span>Qué se hizo</span>' + (hechoActiv ? chipListo() : '') + '</div>' +
+    '<div class="tarjeta' + (e.actividades ? ' campo mal' : '') + '"><div class="chips" role="group" aria-label="Qué se hizo">' +
+      ACTIVIDADES.map(function(a) {
+        const on = m.actividades.indexOf(a) !== -1;
+        return '<button type="button" class="chip" aria-pressed="' + on + '" data-mt="actividad" data-valor="' + esc(a) + '">' + (on ? ico('check') : '') + esc(a) + '</button>';
+      }).join('') + '</div><p class="ayuda">Puedes marcar varias.</p>' + err('actividades') + '</div>' +
+
+    '<div class="secc"><span>Cómo quedó la imagen</span>' + (hechoImagen ? chipListo() : '') + '</div>' +
+    '<div class="tarjeta' + (e.imagen ? ' campo mal' : '') + '" style="padding:8px"><div class="seg" role="group" aria-label="Cómo quedó la imagen">' +
+      ESTADOS_IMAGEN.map(function(t) {
+        return '<button type="button" aria-pressed="' + (m.imagen === t) + '" data-mt="imagen" data-valor="' + esc(t) + '">' + esc(t) + '</button>';
+      }).join('') + '</div>' + (e.imagen ? '<div style="padding:0 10px 6px">' + err('imagen') + '</div>' : '') + '</div>' +
+
+    '<div class="secc"><span>Falla encontrada</span><span data-listo="fallaTxt">' + (m.falla && hechoFalla ? chipListo() : '') + '</span></div>' +
+    '<div class="grupo">' +
+      '<div><button type="button" class="fila-sw" role="switch" aria-checked="' + m.falla + '" data-mt="falla">' +
+        '<span>¿Se encontró una falla?</span><span class="sw" aria-hidden="true"></span></button></div>' +
+      (m.falla ?
+        '<div class="campo' + (e.fallaTxt ? ' mal' : '') + '"><label class="etq" for="mt_falla"><span>Qué falla tenía</span></label>' +
+          '<input id="mt_falla" class="entrada" data-mtx="fallaTxt" value="' + esc(m.fallaTxt) + '" placeholder="Sin video, imagen borrosa, sin energía">' + err('fallaTxt') + '</div>' +
+        '<div class="campo"><label class="etq" for="mt_rep"><span>Repuesto cambiado</span><em>opcional</em></label>' +
+          '<input id="mt_rep" class="entrada" data-mtx="repuesto" value="' + esc(m.repuesto) + '" placeholder="Fuente 12 V, conector BNC"></div>' +
+        '<div class="campo"><label class="etq" for="mt_dias"><span>Días fuera de servicio</span><em>opcional</em></label>' +
+          '<input id="mt_dias" class="entrada" data-mtx="dias" inputmode="numeric" value="' + esc(m.dias) + '" placeholder="0"></div>'
+        : '') +
+    '</div>' +
+
+    '<div class="secc"><span>Observaciones</span><span class="opc">opcional</span></div>' +
+    '<div class="grupo"><div class="campo"><label class="sr" for="mt_obs">Observaciones</label>' +
+      '<textarea id="mt_obs" class="entrada" data-mtx="obs" placeholder="Humedad en la carcasa, cable suelto…">' + esc(m.obs) + '</textarea></div></div>' +
+
+    '<div class="secc"><span>Foto de evidencia</span><span class="opc">opcional</span></div>' +
+    '<div class="tarjeta"><button type="button" class="foto-btn" data-accion="fotoMtto">' + ico('photo_camera') + (m.foto ? 'Cambiar foto' : 'Tomar foto') + '</button>' +
+      (m.foto ? '<img class="foto-prev" src="' + m.foto + '" alt="Foto de evidencia">' : '') + '</div>' +
+
+    '<div class="secc"><span>Técnico</span><span data-listo="tecnico">' + (hechoTecnico ? chipListo() : '') + '</span></div>' +
+    '<div class="grupo"><div class="campo' + (e.tecnico ? ' mal' : '') + '"><label class="sr" for="mt_tec">Técnico</label>' +
+      '<input id="mt_tec" class="entrada" data-mtx="tecnico" value="' + esc(m.tecnico) + '" placeholder="Nombre de quien hizo el trabajo" autocomplete="name">' + err('tecnico') + '</div></div>' +
+    '</div>';
+}
+
+function cambiarMtto(campo, valor) {
+  const m = S.mt;
+
+  if (campo === 'tipo') m.tipo = valor;
+  if (campo === 'imagen') m.imagen = m.imagen === valor ? '' : valor;
+  if (campo === 'falla') m.falla = !m.falla;
+  if (campo === 'actividad') {
+    const i = m.actividades.indexOf(valor);
+    if (i === -1) m.actividades.push(valor); else m.actividades.splice(i, 1);
+  }
+
+  delete m.errores[campo === 'actividad' ? 'actividades' : campo];
+  pintarDetalle();
+}
+
+async function guardarMtto() {
+  if (guardando) return;
+  const r = camaraSel();
+  const m = S.mt;
+  if (!r || !m) return;
+
+  prepararSonido();
+
+  m.errores = {};
+  if (!m.actividades.length) m.errores.actividades = 'Marca al menos una actividad.';
+  if (!m.imagen) m.errores.imagen = 'Elige cómo quedó la imagen.';
+  if (m.falla && vacio(m.fallaTxt)) m.errores.fallaTxt = 'Escribe qué falla tenía.';
+  if (m.falla && !vacio(m.dias) && isNaN(Number(String(m.dias).replace(',', '.')))) m.errores.dias = 'Escribe solo el número de días.';
+  if (vacio(m.tecnico)) m.errores.tecnico = 'Escribe el nombre del técnico.';
+
+  if (Object.keys(m.errores).length) {
+    pintarDetalle();
+    sonarFalta();
+    toast('error', 'Falta completar lo marcado en rojo.');
+    const primero = document.querySelector('#detalle .mal');
+    if (primero) primero.scrollIntoView({ behavior: 'smooth', block: 'center' });
     return;
   }
 
   guardando = true;
-  bloquearBoton('btnActualizar', true);
-  mostrarCargando('Actualizando cámara...');
 
   try {
-
     const datos = {
-      id: valor('editId'),
-      sede: valor('editSede'),
-      edificacion: valor('editEdificacion'),
-      nivel: valor('editNivel'),
-      subzona: valor('editSubzona'),
-      dependencia: valor('editDependencia'),
-      tipoUbicacion: valor('editTipoUbicacion'),
-      areaZona: valor('editAreaZona'),
-      referencia: valor('editReferencia'),
-      tipoCamara: valor('editTipoCamara'),
-      marca: valor('editMarca'),
-      modelo: valor('editModelo'),
-      serial: valor('editSerial'),
-      visionNocturna: valor('editVisionNocturna'),
-      audio: valor('editAudio'),
-      estado: valor('editEstado'),
-      estadoFisico: valor('editEstadoFisico'),
-      estadoCableado: valor('editEstadoCableado'),
-      ultimoMantenimiento: valor('editUltimoMantenimiento'),
-      proximoMantenimiento: valor('editProximoMantenimiento'),
-      responsable: valor('editResponsable'),
-      observaciones: valor('editObservaciones'),
-
-      // "Registrado por" no se envía: el servidor conserva el original.
-      // La foto solo se envía si se tomó una nueva.
-      fotografia: await fotoDe('editFotografia')
+      uuid: nuevoUuid(),
+      fechaCaptura: Date.now(),
+      idCamara: r.id,
+      tipo: m.tipo,
+      actividades: m.actividades.slice(),
+      estadoImagen: m.imagen,
+      huboFalla: m.falla,
+      falla: m.falla ? m.fallaTxt.trim() : '',
+      repuesto: m.falla ? m.repuesto.trim() : '',
+      diasFuera: m.falla ? String(m.dias).replace(',', '.').trim() : '',
+      observaciones: m.obs.trim(),
+      tecnico: m.tecnico.trim(),
+      foto: m.foto || ''
     };
 
-    const respuesta = await llamar('actualizar', { datos: datos }, 120000);
+    ls.set('tecnico', datos.tecnico);
+    await guardarPendiente({ uuid: datos.uuid, tipo: 'mantenimiento', datos: datos, intentos: 0 });
 
-    await descargarInventario();
+    S.mt = null;
+    S.modo = 'ficha';
+    await pintarEstado();
+    pintarDetalle();
+    window.scrollTo(0, 0);
 
-    cerrarEdicion();
-    pintarFechaInventario(false);
-    filtrarResultados();
+    sonarListo();
+    toast('cloud_upload', 'Mantenimiento guardado en el celular. Subiendo…');
 
-    mostrarMensaje(respuesta.mensaje, 'success');
+    const res = await sincronizar();
 
-  } catch (error) {
+    if (res.ids[datos.uuid]) toast('cloud_done', 'Mantenimiento de ' + r.id + ' registrado en la hoja de vida.', 5000);
+    else if (res.errores[datos.uuid]) { sonarError(); toast('error', 'El servidor lo rechazó: ' + res.errores[datos.uuid], 8000); }
+    else toast('cloud_off', 'Sin señal: quedó en este celular y se subirá solo cuando vuelva la conexión.', 6000);
 
-    if (error.codigo === 'ACCESO') {
-      accesoRechazado();
-    }
-
-    mostrarMensaje(
-      error.sinRed
-        ? 'Sin señal: para editar una cámara se necesita conexión. ' +
-          'Los cambios siguen en pantalla; intenta de nuevo cuando haya señal.'
-        : error.message,
-      'error'
-    );
-
+    pintarVista();
+  } catch (e) {
+    sonarError();
+    toast('error', 'No se pudo guardar en el celular: ' + e.message, 8000);
   } finally {
-
     guardando = false;
-    bloquearBoton('btnActualizar', false);
   }
 }
 
-function cerrarEdicion() {
 
-  document.getElementById('editar').classList.add('hidden');
-  document.getElementById('tarjetaBusqueda').classList.remove('hidden');
+/***********************
+ * EDITAR DATOS (necesita señal)
+ ***********************/
+
+function abrirEditar() {
+  const r = camaraSel();
+  if (!r) return;
+
+  S.ed = {};
+  CAMPOS.forEach(function(c) { S.ed[c.k] = r[c.k] || ''; });
+  S.ed.errores = {};
+  S.edFoto = '';
+  S.modo = 'editar';
+  pintarDetalle();
+  window.scrollTo(0, 0);
+}
+
+function htmlEditar(r) {
+  const campos = CAMPOS.filter(function(c) { return !c.soloRegistro; });
+
+  return '<div class="vista" style="padding:0">' +
+    htmlCabDetalle('Editar ' + esc(r.id), 'Para guardar los cambios se necesita señal.', 'ficha') +
+    htmlCampos(campos, S.ed, S.ed.errores, 'e_') +
+    '<div class="secc"><span>Fotografía</span><span class="opc">opcional</span></div>' +
+    '<div class="tarjeta"><button type="button" class="foto-btn" data-accion="fotoEditar">' + ico('photo_camera') +
+      (S.edFoto ? 'Cambiar la foto nueva' : (vacio(r.fotografia) ? 'Tomar foto' : 'Reemplazar la foto actual')) + '</button>' +
+      (S.edFoto ? '<img class="foto-prev" src="' + S.edFoto + '" alt="Foto nueva">' :
+        '<p class="ayuda">' + (vacio(r.fotografia) ? 'Esta cámara no tiene fotografía.' : 'La foto actual está en la hoja (' + esc(r.fotografia) + ').') + '</p>') +
+    '</div></div>';
+}
+
+async function guardarEdicion() {
+  if (guardando) return;
+  const r = camaraSel();
+  if (!r) return;
+
+  prepararSonido();
+
+  const e = {};
+  CAMPOS.forEach(function(c) {
+    if (c.req && !c.soloRegistro && vacio(S.ed[c.k])) e[c.k] = 'Falta completar: ' + c.l.toLowerCase();
+  });
+  S.ed.errores = e;
+
+  if (Object.keys(e).length) {
+    pintarDetalle();
+    sonarFalta();
+    toast('error', 'Falta completar lo marcado en rojo.');
+    return;
+  }
+
+  guardando = true;
+  pintarAccion();
+
+  try {
+    const datos = { id: r.id, fotografia: S.edFoto || '' };
+    CAMPOS.forEach(function(c) { if (!c.soloRegistro) datos[c.k] = String(S.ed[c.k] || '').trim(); });
+
+    const resp = await llamar('actualizar', { datos: datos }, 120000);
+    await descargarInventario();
+
+    S.modo = 'ficha';
+    S.ed = null;
+    sonarListo();
+    toast('cloud_done', resp.mensaje || 'Cámara actualizada.');
+    pintarBuscar();
+    window.scrollTo(0, 0);
+  } catch (err) {
+    if (err.codigo === 'ACCESO') accesoRechazado();
+    sonarError();
+    toast(err.sinRed ? 'cloud_off' : 'error', err.sinRed
+      ? 'Sin señal: para editar se necesita conexión. Los cambios siguen en pantalla; intenta de nuevo con señal.'
+      : err.message, 8000);
+  } finally {
+    guardando = false;
+    pintarAccion();
+  }
 }
 
 
 /***********************
  * RESUMEN
- * Se calcula en el celular con la copia del inventario.
  ***********************/
 
-function igual(a, b) {
-  return String(a || '').trim().toLowerCase() ===
-         String(b || '').trim().toLowerCase();
-}
-
-function contarPorLista(registros, campo, lista) {
-
-  return lista.map(function(nombre) {
-
-    const cantidad = registros.filter(function(registro) {
-      return igual(registro[campo], nombre);
-    }).length;
-
-    return [nombre, cantidad];
-  });
-}
-
-/**
- * Cámaras por nivel para las tres edificaciones. Incluye en cero los
- * niveles que aún no tienen cámaras, para ver qué falta por inventariar.
- */
-function contarPorNivel(registros) {
-
-  const nombres = TODAS_LAS_EDIFICACIONES.slice();
-
-  // Por si en la hoja hay una edificación que no está en la lista
-  registros.forEach(function(registro) {
-    const nombre = String(registro.edificacion || '').trim() || 'Sin edificación';
-    if (nombres.indexOf(nombre) === -1) nombres.push(nombre);
-  });
-
-  return nombres.map(function(edificacion) {
-
-    const propias = registros.filter(function(registro) {
-      return (String(registro.edificacion || '').trim() || 'Sin edificación') ===
-             edificacion;
-    });
-
-    const conteo = {};
-
-    nivelesDe(edificacion).forEach(function(nivel) {
-      conteo[nivel] = 0;
-    });
-
-    propias.forEach(function(registro) {
-      const nivel = String(registro.nivel || '').trim() || 'Sin nivel';
-      conteo[nivel] = (conteo[nivel] || 0) + 1;
-    });
-
-    const niveles = Object.keys(conteo)
-      .sort(function(a, b) {
-        return ordenNivel(a) - ordenNivel(b) || a.localeCompare(b);
-      })
-      .map(function(nivel) {
-        return [nivel, conteo[nivel]];
-      });
-
-    return {
-      edificacion: edificacion,
-      total: propias.length,
-      niveles: niveles
-    };
-  });
-}
-
-function cargarResumen() {
-
-  pintarResumen(false);
-
-  descargarInventario().then(function(seDescargo) {
-    if (seDescargo) pintarResumen(false);
-  });
-}
-
-async function actualizarResumen() {
-
-  pintarResumen(true);
-
-  const seDescargo = await descargarInventario();
-
-  pintarResumen(false);
-
-  if (!seDescargo) {
-    mostrarMensaje(
-      'Sin señal: se muestra la última copia descargada.',
-      'error'
-    );
-  }
-}
-
-async function pintarResumen(actualizando) {
-
-  const registros = registrosCache || [];
-
-  const estados = contarPorLista(registros, 'estado', LISTA_ESTADOS);
-
-  function cantidad(nombre) {
-    return estados.filter(function(par) { return par[0] === nombre; })[0][1];
-  }
-
-  document.getElementById('resTotal').textContent = registros.length;
-  document.getElementById('resOperativas').textContent = cantidad('Operativa');
-  document.getElementById('resNovedad').textContent = cantidad('Operativa con novedad');
-  document.getElementById('resFuera').textContent = cantidad('Fuera de servicio');
-
-  let nota;
-
-  if (!registrosCache) {
-    nota = 'Aún no se ha descargado el inventario en este celular.';
-  } else {
-    nota = 'Inventario del ' + fechaCache;
-  }
-
-  if (actualizando) {
-    nota += ' · actualizando...';
-  }
-
-  const pendientes = (await listarPendientes()).length;
-
-  if (pendientes > 0) {
-    nota += ' · No incluye ' + pendientes +
-            (pendientes === 1 ? ' cámara pendiente' : ' cámaras pendientes') +
-            ' por subir.';
-  }
-
-  document.getElementById('resActualizado').textContent = nota;
-
-  // Por nivel, agrupado por edificación
-  const niveles = document.getElementById('resNiveles');
-
-  niveles.innerHTML = '';
-
-  contarPorNivel(registros).forEach(function(grupo) {
-
-    const titulo = document.createElement('div');
-    titulo.className = 'grupo-titulo';
-
-    const nombre = document.createElement('span');
-    nombre.textContent = grupo.edificacion;
-
-    const total = document.createElement('span');
-    total.textContent =
-      grupo.total === 1 ? '1 cámara' : grupo.total + ' cámaras';
-
-    titulo.appendChild(nombre);
-    titulo.appendChild(total);
-    niveles.appendChild(titulo);
-
-    pintarConteos(niveles, grupo.niveles, false);
-  });
-
-  // Por estado y por tipo (solo los que tienen cámaras)
-  const cajaEstados = document.getElementById('resEstados');
-  cajaEstados.innerHTML = '';
-  pintarConteos(cajaEstados, estados, true);
-
-  const cajaTipos = document.getElementById('resTipos');
-  cajaTipos.innerHTML = '';
-  pintarConteos(
-    cajaTipos,
-    contarPorLista(registros, 'tipoCamara', LISTA_TIPOS_CAMARA),
-    true
-  );
-}
-
-function pintarConteos(contenedor, filas, ocultarCeros) {
-
-  let maximo = 0;
-
-  filas.forEach(function(par) {
-    if (par[1] > maximo) maximo = par[1];
-  });
-
-  filas.forEach(function(par) {
-
-    if (ocultarCeros && !par[1]) return;
-
-    const fila = document.createElement('div');
-    fila.className = 'conteo' + (par[1] ? '' : ' vacio');
-
-    const nombre = document.createElement('span');
-    nombre.textContent = par[0];
-
-    const barra = document.createElement('div');
-    barra.className = 'barra';
-
-    const relleno = document.createElement('span');
-    relleno.style.width =
-      (maximo ? Math.round(par[1] * 100 / maximo) : 0) + '%';
-
-    barra.appendChild(relleno);
-
-    const numero = document.createElement('span');
-    numero.className = 'cantidad';
-    numero.textContent = par[1];
-
-    fila.appendChild(nombre);
-    fila.appendChild(barra);
-    fila.appendChild(numero);
-
-    contenedor.appendChild(fila);
-  });
-}
-
-
-/***********************
- * LIMPIAR
- * Después de guardar se conservan sede, edificación, nivel y quien
- * registra, para seguir con la siguiente cámara del mismo piso.
- * El botón "Limpiar" borra todo.
- ***********************/
-
-function limpiarFormulario(conservar) {
-
-  const guardados = {
-    sede: valor('sede'),
-    edificacion: valor('edificacion'),
-    nivel: valor('nivel'),
-    registradoPor: valor('registradoPor')
-  };
-
-  document
-    .querySelectorAll('#registro input, #registro select, #registro textarea')
-    .forEach(function(campo) {
-      campo.value = '';
-    });
-
-  document.getElementById('preview').classList.add('hidden');
-
-  actualizarEdificaciones();
-
-  if (conservar === true) {
-
-    setValue('sede', guardados.sede);
-    actualizarEdificaciones();
-
-    setValue('edificacion', guardados.edificacion);
-    actualizarNiveles();
-
-    setValue('nivel', guardados.nivel);
-    setValue('registradoPor', guardados.registradoPor);
-  }
-
-  // Botones, avisos y pasos vuelven al inicio para la siguiente cámara
-  quitarErrores();
-  uiRefrescar();
-  irPaso(1);
-}
-
-
-/***********************
- * UTILIDADES
- ***********************/
-
-function valor(id) {
-
-  const elemento = document.getElementById(id);
-
-  if (!elemento) {
-    return '';
-  }
-
-  return elemento.value.trim();
-}
-
-function setValue(id, value) {
-
-  const elemento = document.getElementById(id);
-
-  if (elemento) {
-    elemento.value = value || '';
-  }
-}
-
-/**
- * Pone un valor en una lista desplegable. Si el valor guardado en la
- * hoja no está en la lista (o está vacío), lo agrega como opción para
- * que al guardar no se pierda.
- */
-function setSelect(id, value) {
-
-  const select = document.getElementById(id);
-
-  if (!select) {
+function pintarResumen() {
+  const caja = $('vResumen');
+
+  if (!registros) {
+    caja.innerHTML = '<div class="vacio ancho"><b>Aún no hay inventario en este celular</b>Se descarga solo cuando hay señal.</div>';
     return;
   }
 
-  const texto = value === null || value === undefined ? '' : String(value);
+  const lista = registros.filter(function(r) { return !S.sedeResumen || igual(r.sede, S.sedeResumen); });
+  const total = lista.length;
 
-  // Quitar opciones agregadas en una edición anterior
-  Array.prototype.slice.call(select.options).forEach(function(option) {
-    if (option.dataset.temporal) {
-      select.removeChild(option);
-    }
+  function cuenta(f) { return lista.filter(f).length; }
+
+  const danImagen = cuenta(function(r) { return /^operativa/i.test(String(r.estado).trim()); });
+  const novedad = cuenta(function(r) { return igual(r.estado, 'Operativa con novedad') || igual(r.estado, 'Intermitente'); });
+  const fuera = cuenta(function(r) { return igual(r.estado, 'Fuera de servicio'); });
+
+  const conMtto = cuenta(function(r) { return !!ultimoMtto(r); });
+  const pct = total ? Math.round(conMtto * 100 / total) : 0;
+
+  const ahora = new Date();
+  const ids = {};
+  lista.forEach(function(r) { ids[String(r.id).trim()] = true; });
+
+  const delMes = historial.filter(function(h) {
+    const f = new Date(h.orden || msDeFecha(h.fecha));
+    return ids[String(h.idCamara).trim()] && f.getMonth() === ahora.getMonth() && f.getFullYear() === ahora.getFullYear();
   });
 
-  const existe = Array.prototype.some.call(select.options, function(option) {
-    return option.value === texto;
+  function barras(filas, ocultarCeros) {
+    const max = Math.max.apply(null, filas.map(function(f) { return f[1]; }).concat([1]));
+    return filas.filter(function(f) { return !ocultarCeros || f[1]; }).map(function(f) {
+      return '<div class="barra-fila' + (f[1] ? '' : ' cero') + '"><span>' + esc(f[0]) + '</span>' +
+        '<span class="bar"><i style="width:' + Math.round(f[1] * 100 / max) + '%"></i></span><b>' + f[1] + '</b></div>';
+    }).join('');
+  }
+
+  function contar(campo, base) {
+    const filas = base.map(function(n) { return [n, cuenta(function(r) { return igual(r[campo], n); })]; });
+    const otros = total - filas.reduce(function(a, f) { return a + f[1]; }, 0);
+    if (otros > 0) filas.push(['Otro o sin dato', otros]);
+    return filas;
+  }
+
+  // Por nivel, con los pisos sin cámaras en cero
+  const edificaciones = TODAS_LAS_EDIFICACIONES.filter(function(ed) {
+    return !S.sedeResumen || ed.indexOf(S.sedeResumen) === 0;
   });
 
-  if (!existe) {
+  const porNivel = edificaciones.map(function(ed) {
+    const propias = lista.filter(function(r) { return r.edificacion === ed; });
+    const conteo = {};
+    nivelesDe(ed).forEach(function(n) { conteo[n] = 0; });
+    propias.forEach(function(r) { const n = String(r.nivel || '').trim() || 'Sin nivel'; conteo[n] = (conteo[n] || 0) + 1; });
+    const filas = Object.keys(conteo).sort(function(a, b) { return ordenNivel(a) - ordenNivel(b) || a.localeCompare(b); })
+      .map(function(n) { return [n, conteo[n]]; });
+    return '<div class="sub-grupo"><span>' + esc(ed) + '</span><span>' + propias.length + '</span></div>' + barras(filas, false);
+  }).join('');
 
-    const option = document.createElement('option');
+  const faltan = [
+    ['Sin IP', cuenta(function(r) { return vacio(r.ip); })],
+    ['Sin NVR / DVR', cuenta(function(r) { return vacio(r.nvr); })],
+    ['Sin canal', cuenta(function(r) { return vacio(r.canal); })],
+    ['Sin serial', cuenta(function(r) { return vacio(r.serial); })],
+    ['Sin subzona', cuenta(function(r) { return vacio(r.subzona); })],
+    ['Sin fotografía', cuenta(function(r) { return vacio(r.fotografia); })]
+  ];
 
-    option.value = texto;
-    option.textContent = texto === '' ? '(sin dato)' : texto;
-    option.dataset.temporal = '1';
+  const pendCam = pendientesCache.filter(function(p) { return !esMtto(p); }).length;
+  const pendMt = pendientesCache.filter(esMtto).length;
 
-    select.insertBefore(option, select.firstChild);
-  }
+  caja.innerHTML =
+    '<div class="ancho tarjeta" style="padding:8px"><div class="seg" role="group" aria-label="Sede">' +
+      ['', 'Barranquilla', 'Baranoa'].map(function(s) {
+        return '<button type="button" aria-pressed="' + (S.sedeResumen === s) + '" data-sede-resumen="' + s + '">' + (s || 'Todas') + '</button>';
+      }).join('') + '</div></div>' +
 
-  select.value = texto;
-}
+    '<div class="cifras ancho">' +
+      '<div class="cifra"><b>' + total + '</b><span>' + ico('videocam', 's') + 'Cámaras</span></div>' +
+      '<div class="cifra ok"><b>' + danImagen + '</b><span>' + ico('check', 's') + 'Dan imagen</span></div>' +
+      '<div class="cifra av"><b>' + novedad + '</b><span>' + ico('warning', 's') + 'Con novedad o intermitentes</span></div>' +
+      '<div class="cifra mal"><b>' + fuera + '</b><span>' + ico('error', 's') + 'Fuera de servicio</span></div>' +
+    '</div>' +
 
-function bloquearBoton(id, bloquear) {
+    '<p class="nota ancho">Inventario del ' + esc(fecha12(fechaCopia).replace(/\.$/, '')) +
+      (pendCam || pendMt ? ' · no incluye ' + [pendCam ? pendCam + (pendCam === 1 ? ' cámara' : ' cámaras') : '', pendMt ? pendMt + (pendMt === 1 ? ' mantenimiento' : ' mantenimientos') : ''].filter(String).join(' ni ') + ' por subir' : '') + '.</p>' +
 
-  const boton = document.getElementById(id);
+    '<div><div class="secc" style="margin-bottom:8px"><span>Hoja de vida: mantenimientos</span></div>' +
+    '<div class="grupo">' +
+      '<div class="avance"><div class="linea"><span>Cámaras con mantenimiento</span><b>' + conMtto + ' de ' + total + ' (' + pct + ' %)</b></div>' +
+        '<div class="bar"><i style="width:' + pct + '%"></i></div></div>' +
+      '<div class="dato"><span>Sin ningún mantenimiento</span><span>' + (total - conMtto) + '</span></div>' +
+      '<div class="dato"><span>Registros este mes</span><span>' + delMes.length + '</span></div>' +
+      '<div class="dato"><span>Fallas este mes</span><span>' + delMes.filter(function(h) { return h.huboFalla; }).length + '</span></div>' +
+    '</div></div>' +
 
-  if (boton) {
-    boton.disabled = bloquear;
-  }
-}
+    '<div><div class="secc" style="margin-bottom:8px"><span>Datos que faltan</span></div>' +
+    '<div class="grupo">' + faltan.map(function(f) {
+      return '<div class="dato"><span>' + f[0] + '</span><span>' + f[1] + '</span></div>';
+    }).join('') + '</div></div>' +
 
-function mostrarMensaje(texto, tipo) {
+    '<div><div class="secc" style="margin-bottom:8px"><span>Por estado</span></div>' +
+    '<div class="grupo">' + barras(contar('estado', LISTA_ESTADOS), true) + '</div></div>' +
 
-  const elemento = document.getElementById('mensaje');
+    '<div><div class="secc" style="margin-bottom:8px"><span>Por tipo de cámara</span></div>' +
+    '<div class="grupo">' + barras(contar('tipoCamara', LISTA_TIPOS_CAMARA), true) + '</div></div>' +
 
-  elemento.textContent = texto;
-  elemento.className = 'message ' + tipo;
-  elemento.style.display = 'block';
-
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-function ocultarMensaje() {
-  document.getElementById('mensaje').style.display = 'none';
-}
-
-function mostrarCargando(texto) {
-
-  const elemento = document.getElementById('mensaje');
-
-  elemento.textContent = '' + texto;
-  elemento.className = 'message success';
-  elemento.style.display = 'block';
-
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+    '<div class="ancho"><div class="secc" style="margin-bottom:8px"><span>Por nivel o piso</span></div>' +
+    '<div class="grupo">' + porNivel + '</div></div>';
 }
 
 
 /***********************
- * INSTALAR LA APP
+ * BARRA DE ACCIÓN Y VISTAS
+ ***********************/
+
+function pintarAccion() {
+  const d = $('accionDentro');
+  let html = '';
+
+  if (S.vista === 'vRegistrar') {
+    html = (S.paso > 1 ? '<button type="button" class="btn sec" data-accion="atras">' + ico('arrow_back') + 'Atrás</button>' : '') +
+      (S.paso < PASOS.length
+        ? '<button type="button" class="btn prin" data-accion="siguiente">Siguiente: ' + PASOS[S.paso].toLowerCase() + ico('arrow_forward') + '</button>'
+        : '<button type="button" class="btn prin" data-accion="guardarCamara">' + ico('check') + 'Guardar cámara</button>');
+  } else if (S.vista === 'vBuscar' && camaraSel()) {
+    if (S.modo === 'ficha') {
+      html = '<button type="button" class="btn sec" data-accion="editar">' + ico('edit') + 'Editar</button>' +
+        '<button type="button" class="btn prin" data-accion="mtto">' + ico('build') +
+        '<span class="largo">Registrar mantenimiento</span><span class="corto">Mantenimiento</span></button>';
+    } else if (S.modo === 'mtto') {
+      html = '<button type="button" class="btn sec" data-accion="verFicha">Cancelar</button>' +
+        '<button type="button" class="btn prin" data-accion="guardarMtto">' + ico('check') + 'Guardar</button>';
+    } else if (S.modo === 'editar') {
+      html = '<button type="button" class="btn sec" data-accion="verFicha">Cancelar</button>' +
+        '<button type="button" class="btn prin" data-accion="guardarEdicion"' + (guardando ? ' disabled' : '') + '>' +
+        ico(guardando ? 'sync' : 'check') + (guardando ? 'Guardando…' : 'Guardar cambios') + '</button>';
+    }
+  } else if (S.vista === 'vResumen') {
+    html = '<button type="button" class="btn tono" data-accion="actualizarResumen" style="flex:1">' + ico('sync') + 'Actualizar resumen</button>';
+  }
+
+  d.innerHTML = html;
+  $('accion').classList.toggle('oculto', !html);
+}
+
+const TITULOS = { vRegistrar: 'Registrar cámara', vBuscar: 'Buscar cámara', vResumen: 'Resumen' };
+
+function mostrarVista(id) {
+  S.vista = id;
+
+  ['vRegistrar', 'vBuscar', 'vResumen'].forEach(function(v) { $(v).classList.toggle('oculto', v !== id); });
+
+  document.querySelectorAll('.nav button').forEach(function(b) {
+    if (b.dataset.vista === id) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  });
+
+  $('titulo').textContent = TITULOS[id];
+  document.title = TITULOS[id] + ' · Inventario CCTV';
+  window.scrollTo(0, 0);
+
+  pintarVista();
+
+  if (id !== 'vRegistrar') descargarInventario().then(function(ok) { if (ok) pintarVista(); });
+}
+
+function pintarVista() {
+  if (S.vista === 'vRegistrar') pintarRegistro();
+  else if (S.vista === 'vBuscar') pintarBuscar();
+  else pintarResumen();
+  pintarAccion();
+}
+
+
+/***********************
+ * EVENTOS
+ ***********************/
+
+function enlazarEventos() {
+
+  document.querySelectorAll('.nav button').forEach(function(b) {
+    b.addEventListener('click', function() { mostrarVista(b.dataset.vista); });
+  });
+
+  document.addEventListener('click', function(ev) {
+    const b = ev.target.closest('button');
+    if (!b) return;
+
+    // Opciones de los formularios de cámara
+    if (b.dataset.campo && b.dataset.valor !== undefined) {
+      const editando = !!b.closest('#detalle');
+      const v = editando ? S.ed : S.reg;
+      elegir(v, b.dataset.campo, b.dataset.valor);
+      if (editando) { delete S.ed.errores[b.dataset.campo]; pintarDetalle(); }
+      else { delete S.errores[b.dataset.campo]; guardarBorrador(); pintarRegistro(); }
+      return;
+    }
+
+    if (b.dataset.mt) { cambiarMtto(b.dataset.mt, b.dataset.valor); return; }
+    if (b.dataset.paso) { irPaso(Number(b.dataset.paso)); return; }
+    if (b.dataset.camara) { abrirCamara(b.dataset.camara); return; }
+    if (b.dataset.sede !== undefined) { S.sede = b.dataset.sede; pintarBuscar(); return; }
+    if (b.dataset.filtro !== undefined) { S.filtro = S.filtro === b.dataset.filtro ? '' : b.dataset.filtro; pintarBuscar(); return; }
+    if (b.dataset.sedeResumen !== undefined) { S.sedeResumen = b.dataset.sedeResumen; pintarResumen(); return; }
+    if (b.dataset.descartar) { descartarPendiente(b.dataset.descartar); return; }
+
+    switch (b.dataset.accion) {
+      case 'atras': irPaso(S.paso - 1); break;
+      case 'siguiente': irPaso(S.paso + 1); break;
+      case 'guardarCamara': guardarCamara(); break;
+      case 'cerrarCamara': cerrarCamara(); break;
+      case 'verFicha': S.modo = 'ficha'; pintarDetalle(); window.scrollTo(0, 0); break;
+      case 'mtto': abrirMtto(); break;
+      case 'editar': abrirEditar(); break;
+      case 'guardarMtto': guardarMtto(); break;
+      case 'guardarEdicion': guardarEdicion(); break;
+      case 'actualizarResumen': actualizarResumen(); break;
+      case 'fotoRegistro': pedirFoto(function(f) { S.regFoto = f; pintarRegistro(); }); break;
+      case 'fotoMtto': pedirFoto(function(f) { if (S.mt) { S.mt.foto = f; pintarDetalle(); } }); break;
+      case 'fotoEditar': pedirFoto(function(f) { S.edFoto = f; pintarDetalle(); }); break;
+    }
+  });
+
+  // Textos: se guardan sin volver a pintar (para no perder el cursor)
+  document.addEventListener('input', function(ev) {
+    const t = ev.target;
+
+    if (t.dataset.campo) {
+      const editando = !!t.closest('#detalle');
+      const v = editando ? S.ed : S.reg;
+      v[t.dataset.campo] = t.value;
+
+      if (!editando) {
+        guardarBorrador();
+        if (S.errores[t.dataset.campo] && t.value.trim()) {
+          delete S.errores[t.dataset.campo];
+          const campo = $('campo_r_' + t.dataset.campo);
+          if (campo) { campo.classList.remove('mal'); const e = campo.querySelector('.error-campo'); if (e) e.remove(); }
+        }
+        actualizarProgreso();
+      }
+    }
+
+    if (t.dataset.mtx && S.mt) {
+      S.mt[t.dataset.mtx] = t.value;
+      const span = document.querySelector('[data-listo="' + t.dataset.mtx + '"]');
+      if (span) span.innerHTML = t.value.trim() ? chipListo() : '';
+    }
+  });
+
+  $('archivoFoto').addEventListener('change', async function(ev) {
+    const archivo = ev.target.files[0];
+    if (!archivo || !destinoFoto) return;
+    try {
+      destinoFoto(await comprimirImagen(archivo));
+    } catch (e) {
+      toast('error', e.message);
+    }
+  });
+
+  let reloj = null;
+  $('terminoBusqueda').addEventListener('input', function(ev) {
+    clearTimeout(reloj);
+    reloj = setTimeout(function() { S.texto = ev.target.value; S.sel = window.innerWidth >= 1024 ? S.sel : null; pintarBuscar(); }, 200);
+  });
+
+  $('btnSubir').addEventListener('click', subirAhora);
+  $('btnVerPendientes').addEventListener('click', function() { verPendientes = !verPendientes; pintarEstado(); });
+  $('btnAcceso').addEventListener('click', validarAcceso);
+  $('codigoAcceso').addEventListener('keydown', function(e) { if (e.key === 'Enter') validarAcceso(); });
+  $('btnInstalar').addEventListener('click', instalarApp);
+
+  // Atrás del celular: cierra la ficha antes de salir de Buscar
+  window.addEventListener('popstate', function() {
+    if (S.vista !== 'vBuscar' || !S.sel) return;
+    if (S.modo !== 'ficha') {
+      // Atrás desde el formulario vuelve a la ficha sin salir de ella
+      S.modo = 'ficha';
+      pintarDetalle();
+      try { history.pushState({ ficha: 1 }, ''); } catch (e) { /* nada */ }
+    } else {
+      cerrarCamara(true);
+    }
+  });
+}
+
+function actualizarProgreso() {
+  document.querySelectorAll('#formRegistro [data-listo-secc]').forEach(function(span) {
+    const obligatorios = CAMPOS.filter(function(c) { return c.secc === span.dataset.listoSecc && c.req; });
+    const completa = obligatorios.every(function(c) { return !vacio(S.reg[c.k]); });
+    if (completa !== !!span.firstChild) span.innerHTML = completa ? chipListo() : '';
+  });
+  const falta = faltanDelPaso(S.paso);
+  const hechos = PASOS.filter(function(p, i) { return !faltanDelPaso(i + 1).length; }).length;
+  $('anilloVa').style.strokeDashoffset = String(150.8 * (1 - hechos / PASOS.length));
+  $('pasoFalta').textContent = falta.length
+    ? 'Falta: ' + falta.map(function(c) { return c.l.toLowerCase(); }).join(', ')
+    : (hechos === PASOS.length ? 'Todo listo para guardar.' : 'Este paso está completo.');
+}
+
+async function actualizarResumen() {
+  toast('sync', 'Actualizando…', 1500);
+  const ok = await descargarInventario();
+  pintarResumen();
+  toast(ok ? 'cloud_done' : 'cloud_off', ok ? 'Resumen actualizado.' : 'Sin señal: se muestra la última copia descargada.');
+}
+
+
+/***********************
+ * CÓDIGO DE ACCESO
+ ***********************/
+
+function pedirCodigo(mensaje) {
+  $('pAcceso').classList.remove('oculto');
+  $('errorAcceso').textContent = mensaje || '';
+  $('codigoAcceso').value = '';
+  setTimeout(function() { $('codigoAcceso').focus(); }, 100);
+}
+
+async function validarAcceso() {
+  const codigo = $('codigoAcceso').value.trim();
+  const aviso = $('errorAcceso');
+
+  if (!codigo) { aviso.textContent = 'Escribe el código.'; return; }
+
+  $('btnAcceso').disabled = true;
+  aviso.textContent = 'Comprobando…';
+
+  try {
+    await llamar('validar', {}, 30000, codigo);
+    localStorage.setItem(CLAVE_CODIGO, codigo);
+    $('pAcceso').classList.add('oculto');
+    iniciarDatos();
+  } catch (e) {
+    aviso.textContent = e.sinRed ? 'No hay señal. El código se comprueba una sola vez y necesita conexión.' : e.message;
+  } finally {
+    $('btnAcceso').disabled = false;
+  }
+}
+
+function accesoRechazado() {
+  try { localStorage.removeItem(CLAVE_CODIGO); } catch (e) { /* nada */ }
+  pedirCodigo('El código cambió. Escribe el nuevo.');
+}
+
+
+/***********************
+ * INSTALAR
  ***********************/
 
 let avisoInstalacion = null;
 
-window.addEventListener('beforeinstallprompt', function(evento) {
-
-  evento.preventDefault();
-
-  avisoInstalacion = evento;
-
-  document.getElementById('btnInstalar').classList.remove('hidden');
+window.addEventListener('beforeinstallprompt', function(e) {
+  e.preventDefault();
+  avisoInstalacion = e;
+  $('btnInstalar').classList.remove('oculto');
 });
 
 window.addEventListener('appinstalled', function() {
-
   avisoInstalacion = null;
-
-  document.getElementById('btnInstalar').classList.add('hidden');
+  $('btnInstalar').classList.add('oculto');
 });
 
 async function instalarApp() {
-
-  if (!avisoInstalacion) {
-    return;
-  }
-
+  if (!avisoInstalacion) return;
   avisoInstalacion.prompt();
-
   await avisoInstalacion.userChoice;
-
   avisoInstalacion = null;
-
-  document.getElementById('btnInstalar').classList.add('hidden');
-}
-
-
-/***********************
- * INTERFAZ
- * Íconos dibujados, listas cortas como botones de un toque, registro
- * en cuatro pasos, avisos junto al campo y filtros de la búsqueda.
- * Nada de esto cambia los datos: los botones solo ponen el valor en
- * la misma lista desplegable de siempre (que queda oculta).
- ***********************/
-
-function icono(trazo, grosor) {
-  return '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
-         'stroke-width="' + (grosor || 2.6) + '" stroke-linecap="round" ' +
-         'stroke-linejoin="round" aria-hidden="true">' + trazo + '</svg>';
-}
-
-const IC = {
-  ok: icono('<path d="M5 12l5 5L20 7"/>', 3),
-  alerta: icono('<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 17h.01"/>'),
-  fuera: icono('<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>'),
-  subir: icono('<path d="M12 19V6M6 11l6-6 6 6"/>'),
-  sinSenal: icono('<path d="M3 3l18 18M8.5 16.5a5 5 0 017 0M5 13a10 10 0 014-2.5M19 13a10 10 0 00-3-2M12 20h.01"/>', 2.4),
-  flecha: icono('<path d="M9 6l6 6-6 6"/>')
-};
-
-// Listas desplegables que se muestran como botones
-const SELECTS_CON_BOTONES = [
-  'sede', 'subzona', 'estado', 'visionNocturna', 'audio',
-  'editSede', 'editSubzona', 'editEstado', 'editVisionNocturna', 'editAudio'
-];
-
-function pintarBotones(id) {
-
-  const select = document.getElementById(id);
-
-  if (!select) return;
-
-  let grupo = document.getElementById('botones_' + id);
-
-  if (!grupo) {
-
-    grupo = document.createElement('div');
-    grupo.id = 'botones_' + id;
-    grupo.className = 'grupo';
-    grupo.setAttribute('role', 'group');
-
-    const etiqueta = document.querySelector('label[for="' + id + '"]');
-
-    if (etiqueta) {
-      grupo.setAttribute('aria-label', etiqueta.textContent.replace('*', '').trim());
-    }
-
-    select.classList.add('con-botones');
-    select.parentNode.insertBefore(grupo, select.nextSibling);
-  }
-
-  const opciones = Array.prototype.slice.call(select.options)
-    .filter(function(option) { return option.value !== ''; });
-
-  // Solo se vuelve a dibujar si cambió algo
-  const firma = opciones.map(function(o) { return o.value; }).join('|') +
-                '>' + select.value;
-
-  if (grupo.dataset.firma === firma) return;
-
-  grupo.dataset.firma = firma;
-  grupo.innerHTML = '';
-
-  opciones.forEach(function(option) {
-
-    const elegido = option.value === select.value;
-    const boton = document.createElement('button');
-
-    boton.type = 'button';
-    boton.className = 'opcion' + (elegido ? ' on' : '');
-    boton.setAttribute('aria-pressed', elegido ? 'true' : 'false');
-    boton.innerHTML = IC.ok + '<span></span>';
-    boton.lastChild.textContent = option.textContent;
-
-    boton.onclick = function() {
-      elegirOpcion(select, option.value);
-    };
-
-    grupo.appendChild(boton);
-  });
-}
-
-// Tocar la opción ya elegida la quita (solo si el campo admite quedar vacío)
-function elegirOpcion(select, valorElegido) {
-
-  const admiteVacio = Array.prototype.some.call(select.options, function(o) {
-    return o.value === '' && !o.dataset.temporal;
-  });
-
-  select.value =
-    (select.value === valorElegido && admiteVacio) ? '' : valorElegido;
-
-  select.dispatchEvent(new Event('change', { bubbles: true }));
-}
-
-
-/* ----- Pasos del registro ----- */
-
-const PASOS = [
-  { nombre: 'Ubicación', campos: ['sede', 'edificacion', 'nivel', 'tipoUbicacion', 'areaZona'] },
-  { nombre: 'Cámara', campos: ['tipoCamara'] },
-  { nombre: 'Estado', campos: ['estado'] },
-  { nombre: 'Foto', campos: ['registradoPor'] }
-];
-
-let pasoActual = 1;
-
-function pasoDe(idCampo) {
-
-  for (let i = 0; i < PASOS.length; i++) {
-    if (PASOS[i].campos.indexOf(idCampo) !== -1) return i + 1;
-  }
-
-  return 1;
-}
-
-function irPaso(numero) {
-
-  pasoActual = Math.min(Math.max(numero, 1), PASOS.length);
-
-  document.querySelectorAll('#registro [data-paso]').forEach(function(tarjeta) {
-    tarjeta.classList.toggle('hidden', Number(tarjeta.dataset.paso) !== pasoActual);
-  });
-
-  document.getElementById('btnAtras')
-    .classList.toggle('hidden', pasoActual === 1);
-
-  const siguiente = document.getElementById('btnSiguiente');
-
-  siguiente.classList.toggle('hidden', pasoActual === PASOS.length);
-
-  if (pasoActual < PASOS.length) {
-    siguiente.innerHTML = '<span></span>' + IC.flecha;
-    siguiente.firstChild.textContent =
-      'Siguiente: ' + PASOS[pasoActual].nombre.toLowerCase();
-  }
-
-  pintarPasos();
-
-  window.scrollTo(0, 0);
-}
-
-function pintarPasos() {
-
-  const caja = document.getElementById('pasos');
-
-  if (!caja) return;
-
-  caja.innerHTML = '';
-
-  PASOS.forEach(function(paso, i) {
-
-    const numero = i + 1;
-
-    const completo = paso.campos.every(function(id) { return valor(id); });
-
-    const conError = paso.campos.some(function(id) {
-      const campo = document.getElementById(id);
-      return campo && campo.classList.contains('bad');
-    });
-
-    const boton = document.createElement('button');
-
-    boton.type = 'button';
-    boton.className = 'paso' +
-      (numero === pasoActual ? ' on' : conError ? ' mal' : completo ? ' ok' : '');
-
-    boton.setAttribute('role', 'tab');
-    boton.setAttribute('aria-selected', numero === pasoActual ? 'true' : 'false');
-    boton.setAttribute(
-      'aria-label',
-      'Paso ' + numero + ': ' + paso.nombre +
-      (conError ? ', falta completar' : completo ? ', completo' : '')
-    );
-
-    boton.innerHTML =
-      (completo && numero !== pasoActual ? IC.ok : '<b>' + numero + '</b>') +
-      '<span></span>';
-    boton.lastChild.textContent = paso.nombre;
-
-    boton.onclick = function() { irPaso(numero); };
-
-    caja.appendChild(boton);
-  });
-}
-
-
-/* ----- Avisos junto al campo ----- */
-
-function marcarError(id, texto) {
-
-  const campo = document.getElementById(id);
-
-  if (!campo) return;
-
-  quitarError(id);
-
-  campo.classList.add('bad');
-
-  const grupo = document.getElementById('botones_' + id);
-
-  if (grupo) grupo.classList.add('bad');
-
-  const aviso = document.createElement('div');
-
-  aviso.className = 'aviso-campo';
-  aviso.id = 'error_' + id;
-  aviso.innerHTML = IC.alerta + '<span></span>';
-  aviso.lastChild.textContent = texto;
-
-  const ancla = grupo || campo;
-
-  ancla.parentNode.insertBefore(aviso, ancla.nextSibling);
-}
-
-function quitarError(id) {
-
-  const campo = document.getElementById(id);
-  const grupo = document.getElementById('botones_' + id);
-  const aviso = document.getElementById('error_' + id);
-
-  if (campo) campo.classList.remove('bad');
-  if (grupo) grupo.classList.remove('bad');
-  if (aviso) aviso.remove();
-}
-
-function quitarErrores() {
-
-  document.querySelectorAll('.aviso-campo').forEach(function(aviso) {
-    aviso.remove();
-  });
-
-  document.querySelectorAll('.bad').forEach(function(elemento) {
-    elemento.classList.remove('bad');
-  });
-}
-
-
-/* ----- Búsqueda: filtros y etiqueta de estado ----- */
-
-let filtroEstado = '';
-
-const FILTROS_ESTADO = [
-  ['', 'Todas'],
-  ['Operativa con novedad', 'Con novedad'],
-  ['Fuera de servicio', 'Fuera de servicio']
-];
-
-function pintarFiltros(resultados) {
-
-  const caja = document.getElementById('filtrosEstado');
-
-  if (!caja) return;
-
-  caja.innerHTML = '';
-
-  if (!registrosCache) return;
-
-  FILTROS_ESTADO.forEach(function(par) {
-
-    const cuantas = par[0]
-      ? resultados.filter(function(r) { return igual(r.estado, par[0]); }).length
-      : resultados.length;
-
-    const elegido = filtroEstado === par[0];
-    const boton = document.createElement('button');
-
-    boton.type = 'button';
-    boton.className = 'opcion' + (elegido ? ' on' : '');
-    boton.setAttribute('aria-pressed', elegido ? 'true' : 'false');
-    boton.textContent = par[1] + ' · ' + cuantas;
-
-    boton.onclick = function() {
-      filtroEstado = par[0];
-      filtrarResultados();
-    };
-
-    caja.appendChild(boton);
-  });
-}
-
-// El estado se lee por el ícono y el texto, no solo por el color
-function etiquetaEstado(estado) {
-
-  const texto = String(estado || '').trim();
-  const etiqueta = document.createElement('span');
-
-  let clase = '';
-  let dibujo = '';
-
-  if (igual(texto, 'Operativa')) {
-    clase = ' ok';
-    dibujo = IC.ok;
-  } else if (igual(texto, 'Fuera de servicio')) {
-    clase = ' mal';
-    dibujo = IC.fuera;
-  } else if (texto) {
-    clase = ' av';
-    dibujo = IC.alerta;
-  }
-
-  etiqueta.className = 'tag' + clase;
-  etiqueta.innerHTML = dibujo + '<span></span>';
-  etiqueta.lastChild.textContent = texto || 'Sin estado';
-
-  return etiqueta;
-}
-
-
-/* ----- Refresco general ----- */
-
-function uiRefrescar() {
-
-  SELECTS_CON_BOTONES.forEach(pintarBotones);
-
-  [['fotografia', 'textoFoto', 'Tomar foto de la cámara'],
-   ['editFotografia', 'textoEditFoto', 'Cambiar fotografía (opcional)']]
-    .forEach(function(trio) {
-
-      const entrada = document.getElementById(trio[0]);
-      const texto = document.getElementById(trio[1]);
-
-      if (!entrada || !texto) return;
-
-      texto.textContent =
-        entrada.files && entrada.files.length ? 'Cambiar foto' : trio[2];
-    });
-
-  pintarPasos();
-}
-
-function uiIniciar() {
-
-  // Cualquier cambio en un campo quita su aviso y refresca botones y pasos
-  ['change', 'input'].forEach(function(tipo) {
-
-    document.addEventListener(tipo, function(evento) {
-
-      const id = evento.target && evento.target.id;
-
-      if (id && valor(id)) quitarError(id);
-
-      // Cuando ya no queda nada en rojo, se quita el aviso de arriba
-      const mensaje = document.getElementById('mensaje');
-
-      if (!document.querySelector('.aviso-campo') &&
-          mensaje.textContent.indexOf('Completa lo marcado en rojo') === 0) {
-        ocultarMensaje();
-      }
-
-      uiRefrescar();
-    });
-  });
-
-  uiRefrescar();
-  irPaso(1);
+  $('btnInstalar').classList.add('oculto');
 }
 
 
@@ -2257,75 +1717,50 @@ function uiIniciar() {
  * ARRANQUE
  ***********************/
 
-// Con el código ya validado: subir pendientes y refrescar el inventario
-function iniciarDatos() {
+function pintarHora() {
+  const f = new Date();
+  const dias = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+  const meses = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  $('hora').textContent = hora12(f.getHours(), f.getMinutes());
+  $('subtitulo').textContent = 'Clínica Reina Catalina · ' + dias[f.getDay()] + ' ' + f.getDate() + ' ' + meses[f.getMonth()];
+}
 
-  sincronizar().then(function() {
-    return descargarInventario();
-  });
+function iniciarDatos() {
+  sincronizar().then(function() { return descargarInventario(); }).then(function(ok) { if (ok) pintarVista(); });
 }
 
 async function iniciar() {
-
-  uiIniciar();
-
-  // Enter en la pantalla del código
-  document.getElementById('codigoAcceso')
-    .addEventListener('keydown', function(evento) {
-      if (evento.key === 'Enter') validarAcceso();
-    });
+  enlazarEventos();
+  pintarHora();
+  setInterval(pintarHora, 30000);
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(function(e) {
-      console.error('No se pudo activar el modo sin señal', e);
-    });
+    navigator.serviceWorker.register('sw.js').catch(function(e) { console.error('Sin modo sin señal', e); });
   }
 
-  // Pide al navegador no borrar los pendientes si falta espacio
-  if (navigator.storage && navigator.storage.persist) {
-    navigator.storage.persist().catch(function() {});
-  }
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function() {});
 
   await cargarCopiaLocal();
   await pintarEstado();
+  mostrarVista('vRegistrar');
 
   if (!urlConfigurada()) {
-    mostrarMensaje(
-      'Falta configurar la app: pega la URL de Apps Script en el archivo config.js.',
-      'error'
-    );
+    toast('error', 'Falta configurar la app: pega la URL de Apps Script en config.js.', 10000);
     return;
   }
 
-  if (!codigoAcceso()) {
-    pedirCodigo('');
-    return;
-  }
+  if (!codigoAcceso()) { pedirCodigo(''); return; }
 
   iniciarDatos();
 }
 
-// Cuando vuelve la señal o se regresa a la app, se intenta subir
-window.addEventListener('online', function() {
-  pintarEstado();
-  sincronizar();
-});
-
+window.addEventListener('online', function() { pintarEstado(); sincronizar(); });
 window.addEventListener('offline', pintarEstado);
+document.addEventListener('visibilitychange', function() { if (document.visibilityState === 'visible') sincronizar(); });
 
-document.addEventListener('visibilitychange', function() {
-  if (document.visibilityState === 'visible') sincronizar();
-});
-
-// Reintento cada minuto mientras haya pendientes y la app esté abierta
 setInterval(function() {
-
   if (document.visibilityState !== 'visible' || sincronizando) return;
-
-  listarPendientes().then(function(lista) {
-    if (lista.length > 0) sincronizar();
-  });
-
+  listarPendientes().then(function(l) { if (l.length) sincronizar(); });
 }, 60000);
 
 iniciar();
