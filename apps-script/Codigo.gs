@@ -11,6 +11,8 @@
  *     "Último mantenimiento" de la cámara.
  *   - Al editar una cámara ya no se reescribe la celda de la foto, así
  *     el chip de Drive no se pierde.
+ *   - El panel se actualiza solo cada 15 minutos (menú Inventario CCTV →
+ *     Activar panel automático). Guardar desde la app ya no lo rearma.
  *   - PANEL_CONTROL: el script solo escribe en las columnas A a H. Las
  *     columnas J en adelante son para NOTAS y el script nunca las toca.
  *     (Antes hacía panel.clear() y borraba todo lo que se agregaba a mano.)
@@ -336,6 +338,7 @@ function onOpen() {
 
   ui.createMenu('Inventario CCTV')
     .addItem('Actualizar panel', 'menuActualizarPanel')
+    .addItem('Activar panel automático (cada 15 min)', 'menuActivarPanelAutomatico')
     .addItem('Buscar y eliminar duplicados', 'menuEliminarDuplicados')
     .addSeparator()
     .addItem('Cambiar código de acceso', 'menuCambiarCodigo')
@@ -419,6 +422,33 @@ function asegurarEstructura_() {
   // Historial
   if (!ss.getSheetByName(NOMBRE_HOJA_HISTORIAL)) {
     crearHojaHistorial_(ss);
+  }
+
+  colorearTablaHistorial_(ss);
+}
+
+/** Encabezado de la tabla del historial en vino (una sola vez). */
+function colorearTablaHistorial_(ss) {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('HISTORIAL_COLOR_V1') || !hayApiSheets_()) return;
+
+  const hoja = ss.getSheetByName(NOMBRE_HOJA_HISTORIAL);
+  const tablaId = hoja ? idTablaHistorial_(hoja) : '';
+  if (!tablaId) return;
+
+  try {
+    SpreadsheetApp.flush();
+    Sheets.Spreadsheets.batchUpdate({ requests: [{ updateTable: {
+      table: { tableId: tablaId, rowsProperties: {
+        headerColorStyle: { rgbColor: { red: 132 / 255, green: 48 / 255, blue: 63 / 255 } },
+        firstBandColorStyle: { rgbColor: { red: 1, green: 1, blue: 1 } },
+        secondBandColorStyle: { rgbColor: { red: 1, green: 247 / 255, blue: 246 / 255 } }
+      } },
+      fields: 'rowsProperties'
+    } }] }, ss.getId());
+    props.setProperty('HISTORIAL_COLOR_V1', '1');
+  } catch (e) {
+    console.error('Color de la tabla: ' + e);
   }
 }
 
@@ -816,7 +846,7 @@ function guardarRegistro(datos) {
     lock.releaseLock();
   }
 
-  actualizarPanelSeguro_();
+  marcarPanelPendiente_();
 
   return { ok: true, id: id, mensaje: 'Cámara registrada correctamente.' };
 }
@@ -898,7 +928,7 @@ function actualizarRegistro(datos) {
     lock.releaseLock();
   }
 
-  actualizarPanelSeguro_();
+  marcarPanelPendiente_();
 
   return { ok: true, mensaje: 'Cámara actualizada correctamente.' };
 }
@@ -1133,7 +1163,7 @@ function guardarMantenimiento(d) {
     lock.releaseLock();
   }
 
-  actualizarPanelSeguro_();
+  marcarPanelPendiente_();
 
   return { ok: true, mensaje: 'Mantenimiento registrado.', fecha: formatearFecha_(fecha) };
 }
@@ -1389,6 +1419,47 @@ function vacio_(v) {
  * escribir. Las columnas J en adelante son NOTAS: nunca se tocan.
  ***********************/
 
+/***********************
+ * PANEL AUTOMÁTICO (cada 15 minutos)
+ * Guardar desde la app ya no rearma el panel (tardaba unos segundos
+ * por registro): solo deja una marca. Cada 15 minutos, si hay marca,
+ * el panel se actualiza solo. "Actualizar panel" del menú lo hace ya.
+ ***********************/
+
+const PROPIEDAD_PANEL_PENDIENTE = 'PANEL_PENDIENTE';
+
+function marcarPanelPendiente_() {
+  PropertiesService.getScriptProperties().setProperty(PROPIEDAD_PANEL_PENDIENTE, String(new Date().getTime()));
+}
+
+/** La ejecuta el activador cada 15 minutos. */
+function panelProgramado() {
+  const props = PropertiesService.getScriptProperties();
+  if (!props.getProperty(PROPIEDAD_PANEL_PENDIENTE)) return;
+
+  props.deleteProperty(PROPIEDAD_PANEL_PENDIENTE);
+  actualizarPanelSeguro_();
+}
+
+/** Crea el activador de 15 minutos (una sola vez; si ya existe no duplica). */
+function menuActivarPanelAutomatico() {
+  const existe = ScriptApp.getProjectTriggers().some(function(t) {
+    return t.getHandlerFunction() === 'panelProgramado';
+  });
+
+  if (!existe) {
+    ScriptApp.newTrigger('panelProgramado').timeBased().everyMinutes(15).create();
+  }
+
+  marcarPanelPendiente_();
+
+  try {
+    SpreadsheetApp.getUi().alert(existe
+      ? 'El panel automático ya estaba activo: se actualiza cada 15 minutos cuando hay registros nuevos.'
+      : 'Listo: el panel se actualizará solo cada 15 minutos cuando haya registros nuevos.');
+  } catch (e) { /* ejecutado desde el editor */ }
+}
+
 function actualizarPanelSeguro_() {
   try {
     actualizarPanel_();
@@ -1479,7 +1550,7 @@ function actualizarPanel_() {
   // Título
   poner(1, 1, 'PANEL DE CONTROL — INVENTARIO CCTV');
   poner(2, 1, 'Actualizado: ' + formatearFechaHora12_(ahora) +
-    '   ·   Las columnas J en adelante son para notas: el panel nunca las borra.');
+    '   ·   Se actualiza solo cada 15 min · columnas J en adelante: notas (nunca se borran).');
 
   // Indicadores
   poner(3, 1, 'TOTAL DE CÁMARAS');

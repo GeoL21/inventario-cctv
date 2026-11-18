@@ -21,6 +21,8 @@ El registro se hace desde celulares. Al jefe de monitoreo le pidieron la hoja de
 - El script lee y escribe por NOMBRE de encabezado. Al editar no reescribe la celda de la foto (chip).
 - `PANEL_CONTROL`: el script solo escribe en las columnas A a H. Las columnas J en adelante son NOTAS
   y nunca se tocan. (La versión 3 hacía `panel.clear()` y borraba lo que se agregaba a mano.)
+- El panel se actualiza solo cada 15 minutos (activador `panelProgramado`, se crea desde el menú
+  "Activar panel automático"). Guardar desde la app solo deja la marca `PANEL_PENDIENTE`.
 - Menú de la hoja "Hojas de vida": PDF de una cámara o de una sede (una página por cámara).
   Código y versión del formato: constantes `FORMATO_CODIGO` y `FORMATO_VERSION` del script.
 - Requiere el servicio avanzado "Google Sheets API" (tabla del historial y fotos como chip).
@@ -39,7 +41,7 @@ El registro se hace desde celulares. Al jefe de monitoreo le pidieron la hoja de
 - Código de acceso para entrar (clave `cctv_codigo` en el celular, la misma de siempre).
 - Registro en cuatro pasos; autocompletar de marca con aviso de serial repetido.
 - Las fotos quedan como chips en la hoja; se revisan en la hoja, no en la app.
-- Estándar visual Material 3 / estilo Mornye (skill nueva-pwa): vino #84303F, letra Google Sans Flex,
+- Estándar visual "Pixel" (Material 3, skill nueva-pwa): vino #84303F, letra Google Sans Flex,
   íconos Material Symbols Rounded (el service worker los guarda para verlos sin señal),
   ícono propio de la app (círculo rosa con cámara `videocam`), filas por estado
   (blanco normal, ámbar con novedad, rojo que late fuera de servicio), sonidos al guardar.
