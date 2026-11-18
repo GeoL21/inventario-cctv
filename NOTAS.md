@@ -33,6 +33,7 @@ El registro se hace desde celulares. Al jefe de monitoreo le pidieron la hoja de
 ## Hoja de vida en la app (17 nov 2026)
 - Al tocar una cámara en Buscar se abre su hoja de vida: avance (8 puntos: marca, serial, IP, NVR / DVR,
   canal, estado físico, cableado revisado y al menos un mantenimiento), datos, mantenimientos y fallas.
+- En las clínicas la torre vacía o "No aplica" sale como "Falta: Torre" (aparte de los 8 puntos) y hay filtro "Sin torre" en Buscar.
 - Lo que falta sale en rojo; "Completar lo que falta" guarda en el celular sin señal (pendiente tipo
   `actualizar`, que usa la acción `actualizar` del servidor solo con esos campos).
 - Botón PDF: se arma en el celular con jsPDF (`lib/`), con la foto de la cámara (acción `foto` del servidor, guardada en el celular como `foto:ID`); se comparte en el celular y se descarga en el PC.

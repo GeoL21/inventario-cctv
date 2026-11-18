@@ -69,6 +69,12 @@ function torresDe(edificacion) {
   return [];
 }
 
+/** En las clínicas la torre debe ser A, B o C; vacía o "No aplica" cuenta como faltante. */
+function faltaTorre(d) {
+  const t = torresDe(d.edificacion);
+  return t.length > 1 && t.indexOf(String(d.subzona || '').trim()) === -1;
+}
+
 function ordenNivel(nivel) {
   const t = String(nivel || '').trim().toLowerCase();
   if (t === 'sótano' || t === 'sotano') return -1;
@@ -942,7 +948,8 @@ const FILTROS = [
   ['sinmtto', 'Sin revisión inicial', function(r) { return !ultimoMtto(r); }],
   ['conmtto', 'Con revisión inicial', function(r) { return !!ultimoMtto(r); }],
   ['incompleta', 'Hoja de vida incompleta', function(r) { return avanceHV(datosDe(r)).pct < 100; }],
-  ['completa', 'Hoja de vida completa', function(r) { return avanceHV(datosDe(r)).pct === 100; }]
+  ['completa', 'Hoja de vida completa', function(r) { return avanceHV(datosDe(r)).pct === 100; }],
+  ['sintorre', 'Sin torre', function(r) { return faltaTorre(datosDe(r)); }]
 ];
 
 function claseFila(r) {
@@ -1141,7 +1148,10 @@ function avanceHV(d) {
   return {
     pct: Math.round((CRITERIOS.length - faltan.length) * 100 / CRITERIOS.length),
     faltan: faltan,
-    completables: faltan.map(function(c) { return c.k; }).filter(function(k) { return COMPLETABLES.indexOf(k) !== -1; })
+    // La torre se pide aparte: no cuenta en los 8 puntos
+    torre: faltaTorre(d),
+    completables: (faltaTorre(d) ? ['subzona'] : []).concat(
+      faltan.map(function(c) { return c.k; }).filter(function(k) { return COMPLETABLES.indexOf(k) !== -1; }))
   };
 }
 
@@ -1223,7 +1233,7 @@ function htmlFicha(r) {
 
   // Toda fila con dato propio se puede tocar para cambiarlo (sin señal)
   function fila(k, etiqueta, valor) {
-    const falta = COMPLETABLES.indexOf(k) !== -1 && !cumple(CRITERIOS.filter(function(c) { return c.k === k; })[0] || { k: k }, d);
+    const falta = (k === 'subzona' && faltaTorre(d)) || COMPLETABLES.indexOf(k) !== -1 && !cumple(CRITERIOS.filter(function(c) { return c.k === k; })[0] || { k: k }, d);
     const pend = d.porSubir[k] ? ' <span class="tag av">' + ico('cloud_upload') + 'por subir</span>' : '';
 
     if (falta) {
@@ -1268,11 +1278,12 @@ function htmlFicha(r) {
   ].join('');
 
   // Avance en una sola línea (sin tarjeta ni barra)
+  const faltanTodo = (av.torre ? ['Torre'] : []).concat(av.faltan.map(function(c) { return c.l; }));
   const avance =
     '<div class="linea-hv">' +
       '<span><b>Hoja de vida ' + (CRITERIOS.length - av.faltan.length) + ' de ' + CRITERIOS.length + '</b>' +
-      (av.faltan.length ? ' · Falta: ' + esc(av.faltan.map(function(c) { return c.l; }).join(', ')) : '') + '</span>' +
-      (av.faltan.length ? (av.completables.length ? '<button type="button" class="btn tono mini" data-accion="completar">' + ico('edit') + 'Completar</button>' : '')
+      (faltanTodo.length ? ' · Falta: ' + esc(faltanTodo.join(', ')) : '') + '</span>' +
+      (faltanTodo.length ? (av.completables.length ? '<button type="button" class="btn tono mini" data-accion="completar">' + ico('edit') + 'Completar</button>' : '')
                         : chipListo()) +
     '</div>';
 
@@ -1318,7 +1329,7 @@ function abrirCompletar(soloClave) {
   if (!claves.length) return;
 
   S.cp = { claves: claves, errores: {}, uno: !!soloClave };
-  claves.forEach(function(k) { S.cp[k] = igual(d[k], 'No verificado') ? '' : (d[k] || ''); });
+  claves.forEach(function(k) { S.cp[k] = igual(d[k], 'No verificado') || (k === 'subzona' && faltaTorre(d)) ? '' : (d[k] || ''); });
   S.modo = 'completar';
   pintarDetalle();
   window.scrollTo(0, 0);
@@ -1329,6 +1340,8 @@ function htmlCompletar(r) {
     const c = Object.assign({}, campoDe(k));
     c.secc = S.cp.uno ? c.l : 'Datos que faltan';
     c.req = false;
+    // Opciones que dependen de la ubicación (torre, piso): se calculan con los datos de la cámara
+    if (typeof c.o === 'function') c.o = c.o(datosDe(r));
     // En el cableado y el estado físico no se ofrece "No verificado"
     if (k === 'estadoFisico' || k === 'estadoCableado') c.o = ['Bueno', 'Regular', 'Malo'];
     return c;
