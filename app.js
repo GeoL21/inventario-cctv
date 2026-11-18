@@ -88,7 +88,7 @@ const CAMPOS = [
   // La columna sigue llamándose "subzona" por dentro; en pantalla y en la hoja es "Torre"
   { k: 'subzona', l: 'Torre', t: 'seg', o: function(v) { return torresDe(v.edificacion); },
     paso: 1, secc: 'Dónde está', vacio: 'Elige primero la edificación.' },
-  { k: 'nivel', l: 'Nivel', t: 'pisos', o: function(v) { return nivelesDe(v.edificacion); },
+  { k: 'nivel', l: 'Piso', t: 'pisos', o: function(v) { return nivelesDe(v.edificacion); },
     req: true, paso: 1, secc: 'Dónde está', vacio: 'Elige primero la edificación.' },
 
   { k: 'tipoUbicacion', l: 'Tipo de ubicación', t: 'chips', o: LISTA_UBICACIONES, req: true, paso: 1, secc: 'Ubicación exacta' },
@@ -1013,7 +1013,7 @@ function pintarBuscar() {
     const orden = [];
 
     res.forEach(function(r) {
-      const k = (r.edificacion || 'Sin edificación') + '|' + (r.nivel || 'Sin nivel');
+      const k = (r.edificacion || 'Sin edificación') + '|' + (r.nivel || 'Sin piso');
       if (!grupos[k]) { grupos[k] = []; orden.push(k); }
       grupos[k].push(r);
     });
@@ -1524,7 +1524,7 @@ async function construirPdfHV(r) {
   seccion('Datos técnicos');
   const pares = [
     ['Sede', d.sede, 'Edificación', d.edificacion],
-    ['Nivel', d.nivel, 'Torre', d.subzona],
+    ['Piso', d.nivel, 'Torre', d.subzona],
     ['Área / Zona', d.areaZona, 'Dependencia', d.dependencia],
     ['Tipo de ubicación', d.tipoUbicacion, 'Referencia', d.referencia],
     ['Tipo de cámara', d.tipoCamara, 'Marca', d.marca],
@@ -2015,7 +2015,7 @@ function pintarResumen() {
     const propias = lista.filter(function(r) { return r.edificacion === ed; });
     const conteo = {};
     nivelesDe(ed).forEach(function(n) { conteo[n] = 0; });
-    propias.forEach(function(r) { const n = String(r.nivel || '').trim() || 'Sin nivel'; conteo[n] = (conteo[n] || 0) + 1; });
+    propias.forEach(function(r) { const n = String(r.nivel || '').trim() || 'Sin piso'; conteo[n] = (conteo[n] || 0) + 1; });
     const filas = Object.keys(conteo).sort(function(a, b) { return ordenNivel(a) - ordenNivel(b) || a.localeCompare(b); })
       .map(function(n) { return [n, conteo[n], { edificacion: ed, nivel: n }, n + ' · ' + ed.replace(' - Clínica', '')]; });
     return '<div class="sub-grupo"><span>' + esc(ed) + '</span><span>' + propias.length + '</span></div>' + barras(filas, false);
@@ -2073,7 +2073,7 @@ function pintarResumen() {
     '<div><div class="secc" style="margin-bottom:8px"><span>Por tipo de cámara</span></div>' +
     '<div class="grupo">' + barras(contar('tipoCamara', LISTA_TIPOS_CAMARA), true) + '</div></div>' +
 
-    '<div class="ancho"><div class="secc" style="margin-bottom:8px"><span>Por nivel o piso</span></div>' +
+    '<div class="ancho"><div class="secc" style="margin-bottom:8px"><span>Por piso</span></div>' +
     '<div class="grupo">' + porNivel + '</div></div>';
 }
 

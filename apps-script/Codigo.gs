@@ -68,7 +68,7 @@ const CAMPOS = [
   ['fechaRegistro', 'Fecha de registro'],
   ['sede', 'Sede'],
   ['edificacion', 'Edificación'],
-  ['nivel', 'Nivel'],
+  ['nivel', 'Piso'],        // antes "Nivel" (se renombra sola en la hoja)
   ['subzona', 'Torre'],     // antes "Subzona" (se renombra sola en la hoja)
   ['dependencia', 'Dependencia'],
   ['tipoUbicacion', 'Tipo de ubicación'],
@@ -366,6 +366,29 @@ function menuActualizarPanel() {
  * siempre: si ya existe, no hace nada.
  ***********************/
 
+/**
+ * Encabezados que cambiaron de nombre (17 nov 2026):
+ * "Subzona" → "Torre" y "Nivel" → "Piso". Las claves internas no cambian.
+ */
+function renombrarEncabezadosViejos_(ss, inventario) {
+  const cambios = [['Subzona', 'Torre'], ['Nivel', 'Piso']];
+  let hubo = false;
+  cambios.forEach(function(c) {
+    const enc = leerEncabezados_(inventario);
+    const i = enc.indexOf(c[0]);
+    if (i !== -1 && enc.indexOf(c[1]) === -1) {
+      inventario.getRange(1, i + 1).setValue(c[1]);
+      hubo = true;
+    }
+  });
+  const config = ss.getSheetByName(NOMBRE_HOJA_CONFIG);
+  if (config) {
+    const t = config.createTextFinder('SUBZONAS').matchEntireCell(true).findNext();
+    if (t) { t.setValue('TORRES'); hubo = true; }
+  }
+  if (hubo) SpreadsheetApp.flush();
+}
+
 function asegurarEstructura_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
@@ -375,17 +398,7 @@ function asegurarEstructura_() {
     throw new Error('No existe la hoja ' + NOMBRE_HOJA_INVENTARIO + '.');
   }
 
-  // "Subzona" pasó a llamarse "Torre" (17 nov 2026)
-  const iSubzona = leerEncabezados_(inventario).indexOf('Subzona');
-  if (iSubzona !== -1) {
-    inventario.getRange(1, iSubzona + 1).setValue('Torre');
-    const config = ss.getSheetByName(NOMBRE_HOJA_CONFIG);
-    if (config) {
-      const t = config.createTextFinder('SUBZONAS').matchEntireCell(true).findNext();
-      if (t) t.setValue('TORRES');
-    }
-    SpreadsheetApp.flush();
-  }
+  renombrarEncabezadosViejos_(ss, inventario);
 
   // Columnas nuevas al final del inventario
   const encabezados = leerEncabezados_(inventario);
@@ -1393,7 +1406,7 @@ function contarPorNivel_(camaras) {
 
   camaras.forEach(function(c) {
     const ed = String(c.edificacion || '').trim() || 'Sin edificación';
-    const nivel = String(c.nivel || '').trim() || 'Sin nivel';
+    const nivel = String(c.nivel || '').trim() || 'Sin piso';
 
     if (!grupos[ed]) grupos[ed] = { edificacion: ed, total: 0, niveles: {} };
 
@@ -1711,7 +1724,7 @@ function actualizarPanel_() {
 
   seccion('CÁMARAS SIN IMAGEN O INTERMITENTES (' + sinImagen.length + ')');
 
-  ['ID', 'SEDE', 'EDIFICACIÓN', 'NIVEL', 'ÁREA / ZONA', 'ESTADO', 'OBSERVACIONES', '']
+  ['ID', 'SEDE', 'EDIFICACIÓN', 'PISO', 'ÁREA / ZONA', 'ESTADO', 'OBSERVACIONES', '']
     .forEach(function(t, i) { poner(fila, i + 1, t); });
   formatos.unir.push(a1(fila, 7, fila, 8));
   formatos.encabezados.push(a1(fila, 1, fila, 8));
@@ -1739,9 +1752,9 @@ function actualizarPanel_() {
   formatos.bordes.push(a1(filaEncLista, 1, fila, 8));
 
   // ---- Por nivel ----
-  seccion('CÁMARAS POR NIVEL / PISO');
+  seccion('CÁMARAS POR PISO');
 
-  poner(fila, 1, 'NIVEL / PISO');
+  poner(fila, 1, 'PISO');
   poner(fila, 2, 'CÁMARAS');
   formatos.encabezados.push(a1(fila, 1, fila, 2));
   const filaEncNivel = fila;
@@ -1944,6 +1957,7 @@ function mostrarEnlace_(archivo, titulo) {
  */
 function generarHojasDeVida_(filtro, nombre) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  renombrarEncabezadosViejos_(ss, ss.getSheetByName(NOMBRE_HOJA_INVENTARIO));
   const inv = leerInventario_(ss.getSheetByName(NOMBRE_HOJA_INVENTARIO));
 
   const camaras = inv.filas.map(function(f) { return registroDe_(inv, f.valores); }).filter(filtro);
@@ -2122,7 +2136,7 @@ function paginaHojaDeVida_(c, historial, logo, foto, hoy, ultima) {
   const datos =
     '<table class="datos">' +
     fila('Sede', c.sede, 'Edificación', c.edificacion) +
-    fila('Nivel', c.nivel, 'Torre', c.subzona) +
+    fila('Piso', c.nivel, 'Torre', c.subzona) +
     fila('Área / Zona', c.areaZona, 'Dependencia', c.dependencia) +
     fila('Tipo de ubicación', c.tipoUbicacion, 'Referencia', c.referencia) +
     fila('Tipo de cámara', c.tipoCamara, 'Marca', c.marca) +
