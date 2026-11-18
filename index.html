@@ -175,7 +175,10 @@ button.barra-fila{width:100%;text-align:left}
 .barra-fila b .ms{color:var(--apagado)}
 .buscador input{flex:1;min-width:0;border:0;background:transparent;outline:0;font-size:17px;font-weight:600;min-height:52px}
 .buscador input::placeholder{color:var(--apagado);font-weight:500}
-.filtros{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+.col-lista{display:flex;flex-direction:column;gap:14px}
+.filtros{display:flex;gap:8px;overflow-x:auto;padding:2px 0 4px;margin:0 -16px;padding-left:16px;padding-right:16px;scroll-padding-left:16px;scrollbar-width:none}
+.filtros::-webkit-scrollbar{display:none}
+#contador{margin-top:-4px}
 .filtros .chip{flex:none}
 .nota{font-size:14px;color:var(--suave);margin:0 8px}
 .lista{display:flex;flex-direction:column;gap:4px}
@@ -287,6 +290,7 @@ button.barra-fila{width:100%;text-align:left}
   #vRegistrar .formulario>.bloque{display:flex;flex-direction:column;gap:14px}
   #vBuscar{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:24px;align-items:start}
   #vBuscar>.col-lista{display:flex!important;flex-direction:column;gap:14px}
+  .filtros{margin:0;padding:2px 0 4px}
   #vBuscar>.col-detalle{position:sticky;top:16px;max-height:calc(100dvh - 32px);overflow:auto;border-radius:28px}
   #vBuscar .volver-lista{display:none}
   .solo-pc{display:block}
@@ -360,7 +364,7 @@ button.barra-fila{width:100%;text-align:left}
   <!-- BUSCAR -->
   <section id="vBuscar" class="vista oculto" aria-labelledby="titulo">
     <div class="col-lista">
-      <label class="buscador" style="margin-top:4px">
+      <label class="buscador">
         <span class="ms" aria-hidden="true">search</span>
         <input id="terminoBusqueda" type="search" placeholder="ID, serial, piso, área, marca…" aria-label="Buscar cámara" autocomplete="off">
       </label>
