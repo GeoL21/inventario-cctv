@@ -70,9 +70,9 @@ const CAMPOS = [
   ['edificacion', 'Edificación'],
   ['nivel', 'Piso'],        // antes "Nivel" (se renombra sola en la hoja)
   ['subzona', 'Torre'],     // antes "Subzona" (se renombra sola en la hoja)
-  ['dependencia', 'Dependencia'],
+  ['dependencia', 'Servicio'],      // antes "Dependencia" (se renombra sola)
   ['tipoUbicacion', 'Tipo de ubicación'],
-  ['areaZona', 'Área / Zona'],
+  ['areaZona', 'Punto exacto'],     // antes "Área / Zona" (se renombra sola)
   ['referencia', 'Referencia'],
   ['tipoCamara', 'Tipo de cámara'],
   ['marca', 'Marca'],
@@ -167,6 +167,78 @@ const LISTA_TIPOS_UBICACION = [
 
 // Torres: Barranquilla A, B y C; Baranoa A y B (edificaciones pegadas)
 const LISTA_SUBZONAS = ['A', 'B', 'C', 'No aplica'];
+
+/***********************
+ * SERVICIOS (antes "Dependencia"): una sola forma de escribir cada uno.
+ * El mismo bloque está en app.js y en Codigo.gs: si cambias uno, cambia el otro.
+ ***********************/
+
+const LISTA_SERVICIOS = [
+  'Administración', 'Admisiones', 'Archivo', 'Áreas externas', 'Bodega de farmacia',
+  'Cafetería', 'Casa 81', 'Cirugía', 'Consulta Externa', 'Endoscopia', 'Facturación',
+  'Farma Reina', 'Farmacia', 'Gerencia', 'Hospitalización', 'Hospitalización Ginecología',
+  'Hospitalización Pediátrica', 'Imágenes', 'Lavandería', 'Mantenimiento', 'Monitoreo',
+  'Otorrino', 'Pangea', 'Quimioterapia', 'Recepción', 'UCI', 'UCI 3', 'UCI 7',
+  'UCI Cardio', 'UCI Neonatal', 'UCI Neuro', 'UCI Pediátrica', 'Unidad de Aislados',
+  'Unidad Renal', 'Urgencias'
+];
+
+// Formas viejas → nombre único (la clave va sin tildes, espacios ni puntos)
+const SERVICIOS_EQUIVALENTES = {
+  urgencia: 'Urgencias', saladeurgencias: 'Urgencias', urgencia82: 'Urgencias',
+  admisionesurgencias: 'Admisiones',
+  hospitalizacionladoa: 'Hospitalización', hospitalizacionladob: 'Hospitalización',
+  saladeesperauci3: 'UCI 3', saladeesperadeuci3: 'UCI 3',
+  saladeesperauci7: 'UCI 7',
+  ucicardiop: 'UCI Cardio',
+  ucineo: 'UCI Neonatal', neonatal: 'UCI Neonatal', ucineoypediatria: 'UCI Neonatal',
+  ucipediatra: 'UCI Pediátrica', ucip: 'UCI Pediátrica', ucipediatrica: 'UCI Pediátrica',
+  saladeesperacirugia: 'Cirugía', areacx: 'Cirugía',
+  areaquimio: 'Quimioterapia', quimio: 'Quimioterapia',
+  ecografia: 'Imágenes',
+  administrativa: 'Administración', areaadministrativa: 'Administración', pasillooficinas: 'Administración',
+  cuartodemedicamentos: 'Farma Reina', cuartodecirugia: 'Farma Reina',
+  cuartodemedicamentosparacirugia: 'Farma Reina', cuartodealmacenamientogeneral: 'Farma Reina',
+  oficinaprincipaldebodega: 'Farma Reina',
+  cafeteriapiso6: 'Cafetería',
+  zonaexterna: 'Áreas externas', patiointerno: 'Áreas externas', pasilloexterno: 'Áreas externas',
+  parqueaderointerno: 'Áreas externas', parqueaderointernoparteexterna: 'Áreas externas',
+  parqueaderoexterno: 'Áreas externas', casademedicos: 'Áreas externas',
+  zonadedesechos: 'Áreas externas', areaderesiduos: 'Áreas externas'
+};
+
+// Lo que se escribió como servicio pero es un lugar: queda "Sin servicio"
+const NO_SON_SERVICIOS = [
+  'puerta', 'pasillo', 'piso1', 'piso5', 'sotano', 'asistencial', 'areaasistencial', 'rampas',
+  'rampa82', 'salaespera', 'puertadesaladejuntas', 'entradadesaladejuntas', 'pasillodemorgue',
+  'estaciondegases', 'puertasaludtotal', 'pasillopuertahuellero', 'pasillodeconfecciones',
+  'pasillodestar5topisoladoa', 'pasillodelaentradaprincipal'
+];
+
+function claveServicio(texto) {
+  return String(texto || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Devuelve el nombre único del servicio, '' si no es un servicio,
+ * o null si es uno nuevo que no está en la lista.
+ */
+function servicioUnico(texto, extras) {
+  const k = claveServicio(texto);
+  if (!k) return '';
+  const lista = LISTA_SERVICIOS.concat(extras || []);
+  for (let i = 0; i < lista.length; i++) if (claveServicio(lista[i]) === k) return lista[i];
+  if (SERVICIOS_EQUIVALENTES[k]) return SERVICIOS_EQUIVALENTES[k];
+  if (NO_SON_SERVICIOS.indexOf(k) !== -1) return '';
+  return null;
+}
+
+/** Servicio con su nombre único; uno nuevo se guarda como se escribió (sin espacios de más). */
+function servicioParaGuardar_(texto) {
+  const u = servicioUnico(texto);
+  return u === null ? String(texto).trim().replace(/\s+/g, ' ') : u;
+}
 
 
 /***********************
@@ -368,10 +440,11 @@ function menuActualizarPanel() {
 
 /**
  * Encabezados que cambiaron de nombre (17 nov 2026):
- * "Subzona" → "Torre" y "Nivel" → "Piso". Las claves internas no cambian.
+ * "Subzona" → "Torre", "Nivel" → "Piso", "Dependencia" → "Servicio" y
+ * "Área / Zona" → "Punto exacto". Las claves internas no cambian.
  */
 function renombrarEncabezadosViejos_(ss, inventario) {
-  const cambios = [['Subzona', 'Torre'], ['Nivel', 'Piso']];
+  const cambios = [['Subzona', 'Torre'], ['Nivel', 'Piso'], ['Dependencia', 'Servicio'], ['Área / Zona', 'Punto exacto']];
   let hubo = false;
   cambios.forEach(function(c) {
     const enc = leerEncabezados_(inventario);
@@ -389,6 +462,46 @@ function renombrarEncabezadosViejos_(ss, inventario) {
   if (hubo) SpreadsheetApp.flush();
 }
 
+const PROPIEDAD_SERVICIOS_UNIFICADOS = 'SERVICIOS_V1';
+
+/**
+ * Una sola vez: deja cada servicio escrito de una sola forma.
+ * Si lo escrito no era un servicio (por ejemplo "Pasillo de morgue"), queda vacío
+ * ("Sin servicio") y el texto pasa a "Punto exacto" si allí no estaba.
+ */
+function unificarServicios_(inventario) {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty(PROPIEDAD_SERVICIOS_UNIFICADOS)) return;
+
+  const enc = leerEncabezados_(inventario);
+  const iServ = enc.indexOf('Servicio');
+  const iPunto = enc.indexOf('Punto exacto');
+  const filas = inventario.getLastRow() - 1;
+  if (iServ === -1 || filas < 1) return;
+
+  const serv = inventario.getRange(2, iServ + 1, filas, 1).getValues();
+  const punto = iPunto === -1 ? null : inventario.getRange(2, iPunto + 1, filas, 1).getValues();
+  let cambiosPunto = false;
+
+  serv.forEach(function(f, i) {
+    const antes = String(f[0] || '').trim();
+    const nuevo = servicioParaGuardar_(antes);
+    if (nuevo === '' && antes && punto) {
+      const p = String(punto[i][0] || '').trim();
+      if (claveServicio(p).indexOf(claveServicio(antes)) === -1) {
+        punto[i][0] = p ? antes + ' · ' + p : antes;
+        cambiosPunto = true;
+      }
+    }
+    f[0] = nuevo;
+  });
+
+  inventario.getRange(2, iServ + 1, filas, 1).setValues(serv);
+  if (cambiosPunto) inventario.getRange(2, iPunto + 1, filas, 1).setValues(punto);
+  SpreadsheetApp.flush();
+  props.setProperty(PROPIEDAD_SERVICIOS_UNIFICADOS, new Date().toISOString());
+}
+
 function asegurarEstructura_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
@@ -399,6 +512,7 @@ function asegurarEstructura_() {
   }
 
   renombrarEncabezadosViejos_(ss, inventario);
+  unificarServicios_(inventario);
 
   // Columnas nuevas al final del inventario
   const encabezados = leerEncabezados_(inventario);
@@ -841,6 +955,7 @@ function guardarRegistro(datos) {
     CAMPOS_TEXTO.forEach(function(clave) {
       poner(clave, String(datos[clave] === undefined || datos[clave] === null ? '' : datos[clave]).trim());
     });
+    if (datos.dependencia !== undefined) poner('dependencia', servicioParaGuardar_(datos.dependencia));
 
     poner('fechaRegistro', fechaDeCaptura_(datos.fechaCaptura));
     poner('ultimoMantenimiento', convertirFecha_(datos.ultimoMantenimiento));
@@ -930,7 +1045,7 @@ function actualizarRegistro(datos) {
     // la app sin IP) se conserva como está.
     CAMPOS_TEXTO.forEach(function(clave) {
       if (datos[clave] === undefined || datos[clave] === null) return;
-      poner(clave, String(datos[clave]).trim());
+      poner(clave, clave === 'dependencia' ? servicioParaGuardar_(datos[clave]) : String(datos[clave]).trim());
     });
 
     if (datos.ultimoMantenimiento !== undefined) {
@@ -1684,7 +1799,7 @@ function actualizarPanel_() {
 
   const f1 = fila;
   const finD = tabla2(f1, 1, 'EDIFICACIÓN', 'CÁMARAS', contarConLista_(camaras.map(function(c) { return c.edificacion; }), LISTA_EDIFICACIONES));
-  const finE = tabla2(f1, 4, 'TIPO DE UBICACIÓN', 'CÁMARAS', contarConLista_(camaras.map(function(c) { return c.tipoUbicacion; }), LISTA_TIPOS_UBICACION));
+  const finE = tabla2(f1, 4, 'SERVICIO', 'CÁMARAS', contarConLista_(camaras.map(function(c) { return c.dependencia; }), LISTA_SERVICIOS));
   fila = Math.max(finD, finE);
 
   // ---- Datos que faltan ----
@@ -1724,7 +1839,7 @@ function actualizarPanel_() {
 
   seccion('CÁMARAS SIN IMAGEN O INTERMITENTES (' + sinImagen.length + ')');
 
-  ['ID', 'SEDE', 'EDIFICACIÓN', 'PISO', 'ÁREA / ZONA', 'ESTADO', 'OBSERVACIONES', '']
+  ['ID', 'SEDE', 'EDIFICACIÓN', 'PISO', 'PUNTO EXACTO', 'ESTADO', 'OBSERVACIONES', '']
     .forEach(function(t, i) { poner(fila, i + 1, t); });
   formatos.unir.push(a1(fila, 7, fila, 8));
   formatos.encabezados.push(a1(fila, 1, fila, 8));
@@ -2137,11 +2252,10 @@ function paginaHojaDeVida_(c, historial, logo, foto, hoy, ultima) {
     '<table class="datos">' +
     fila('Sede', c.sede, 'Edificación', c.edificacion) +
     fila('Piso', c.nivel, 'Torre', c.subzona) +
-    fila('Área / Zona', c.areaZona, 'Dependencia', c.dependencia) +
-    fila('Tipo de ubicación', c.tipoUbicacion, 'Referencia', c.referencia) +
-    fila('Tipo de cámara', c.tipoCamara, 'Marca', c.marca) +
-    fila('Modelo', c.modelo, 'Serial', c.serial) +
-    fila('Visión nocturna', c.visionNocturna, 'Audio', c.audio) +
+    fila('Servicio', c.dependencia || 'Sin servicio', 'Punto exacto', c.areaZona) +
+    fila('Referencia', c.referencia, 'Tipo de cámara', c.tipoCamara) +
+    fila('Marca', c.marca, 'Modelo', c.modelo) +
+    fila('Serial', c.serial, 'Visión nocturna · Audio', [c.visionNocturna, c.audio].filter(String).join(' · ')) +
     fila('IP', c.ip, 'NVR / DVR · Canal', [c.nvr, c.canal].filter(String).join(' · ')) +
     fila('Estado físico', c.estadoFisico, 'Estado de cableado', c.estadoCableado) +
     fila('Último mantenimiento', fechaCorta_(c.ultimoMantenimiento), 'Próximo mantenimiento', fechaCorta_(c.proximoMantenimiento)) +

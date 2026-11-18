@@ -21,6 +21,11 @@ El registro se hace desde celulares. Al jefe de monitoreo le pidieron la hoja de
 - "Subzona" se llama ahora **"Torre"** y "Nivel" se llama **"Piso"** en la hoja y la app (las claves internas siguen siendo `subzona` y `nivel`).
   Barranquilla: torres A, B y C. Baranoa - Clínica: torres A y B (su piso 7 es la azotea; no hay "Azotea").
   Edificio de Dependencias: "No aplica".
+- "Dependencia" se llama **"Servicio"** y "Área / Zona" se llama **"Punto exacto"** (claves `dependencia` y `areaZona`).
+  El servicio se elige de una lista con buscador (`LISTA_SERVICIOS`, igual en app.js y Codigo.gs); las formas
+  viejas se unifican con `SERVICIOS_EQUIVALENTES` (una vez, marca `SERVICIOS_V1`) y al guardar. Lo que era un
+  lugar queda "Sin servicio" (filtro en Buscar) y su texto pasa a Punto exacto. "Tipo de ubicación" ya no se pide
+  (la columna queda en la hoja). Bodega de farmacia (sótano) y Farma Reina (afuera) son lugares distintos.
 - El script lee y escribe por NOMBRE de encabezado. Al editar no reescribe la celda de la foto (chip).
 - `PANEL_CONTROL`: el script solo escribe en las columnas A a H. Las columnas J en adelante son NOTAS
   y nunca se tocan. (La versión 3 hacía `panel.clear()` y borraba lo que se agregaba a mano.)

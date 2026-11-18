@@ -75,6 +75,125 @@ function faltaTorre(d) {
   return t.length > 1 && t.indexOf(String(d.subzona || '').trim()) === -1;
 }
 
+/***********************
+ * SERVICIOS (antes "Dependencia"): una sola forma de escribir cada uno.
+ * El mismo bloque está en app.js y en Codigo.gs: si cambias uno, cambia el otro.
+ ***********************/
+
+const LISTA_SERVICIOS = [
+  'Administración', 'Admisiones', 'Archivo', 'Áreas externas', 'Bodega de farmacia',
+  'Cafetería', 'Casa 81', 'Cirugía', 'Consulta Externa', 'Endoscopia', 'Facturación',
+  'Farma Reina', 'Farmacia', 'Gerencia', 'Hospitalización', 'Hospitalización Ginecología',
+  'Hospitalización Pediátrica', 'Imágenes', 'Lavandería', 'Mantenimiento', 'Monitoreo',
+  'Otorrino', 'Pangea', 'Quimioterapia', 'Recepción', 'UCI', 'UCI 3', 'UCI 7',
+  'UCI Cardio', 'UCI Neonatal', 'UCI Neuro', 'UCI Pediátrica', 'Unidad de Aislados',
+  'Unidad Renal', 'Urgencias'
+];
+
+// Formas viejas → nombre único (la clave va sin tildes, espacios ni puntos)
+const SERVICIOS_EQUIVALENTES = {
+  urgencia: 'Urgencias', saladeurgencias: 'Urgencias', urgencia82: 'Urgencias',
+  admisionesurgencias: 'Admisiones',
+  hospitalizacionladoa: 'Hospitalización', hospitalizacionladob: 'Hospitalización',
+  saladeesperauci3: 'UCI 3', saladeesperadeuci3: 'UCI 3',
+  saladeesperauci7: 'UCI 7',
+  ucicardiop: 'UCI Cardio',
+  ucineo: 'UCI Neonatal', neonatal: 'UCI Neonatal', ucineoypediatria: 'UCI Neonatal',
+  ucipediatra: 'UCI Pediátrica', ucip: 'UCI Pediátrica', ucipediatrica: 'UCI Pediátrica',
+  saladeesperacirugia: 'Cirugía', areacx: 'Cirugía',
+  areaquimio: 'Quimioterapia', quimio: 'Quimioterapia',
+  ecografia: 'Imágenes',
+  administrativa: 'Administración', areaadministrativa: 'Administración', pasillooficinas: 'Administración',
+  cuartodemedicamentos: 'Farma Reina', cuartodecirugia: 'Farma Reina',
+  cuartodemedicamentosparacirugia: 'Farma Reina', cuartodealmacenamientogeneral: 'Farma Reina',
+  oficinaprincipaldebodega: 'Farma Reina',
+  cafeteriapiso6: 'Cafetería',
+  zonaexterna: 'Áreas externas', patiointerno: 'Áreas externas', pasilloexterno: 'Áreas externas',
+  parqueaderointerno: 'Áreas externas', parqueaderointernoparteexterna: 'Áreas externas',
+  parqueaderoexterno: 'Áreas externas', casademedicos: 'Áreas externas',
+  zonadedesechos: 'Áreas externas', areaderesiduos: 'Áreas externas'
+};
+
+// Lo que se escribió como servicio pero es un lugar: queda "Sin servicio"
+const NO_SON_SERVICIOS = [
+  'puerta', 'pasillo', 'piso1', 'piso5', 'sotano', 'asistencial', 'areaasistencial', 'rampas',
+  'rampa82', 'salaespera', 'puertadesaladejuntas', 'entradadesaladejuntas', 'pasillodemorgue',
+  'estaciondegases', 'puertasaludtotal', 'pasillopuertahuellero', 'pasillodeconfecciones',
+  'pasillodestar5topisoladoa', 'pasillodelaentradaprincipal'
+];
+
+function claveServicio(texto) {
+  return String(texto || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Devuelve el nombre único del servicio, '' si no es un servicio,
+ * o null si es uno nuevo que no está en la lista.
+ */
+function servicioUnico(texto, extras) {
+  const k = claveServicio(texto);
+  if (!k) return '';
+  const lista = LISTA_SERVICIOS.concat(extras || []);
+  for (let i = 0; i < lista.length; i++) if (claveServicio(lista[i]) === k) return lista[i];
+  if (SERVICIOS_EQUIVALENTES[k]) return SERVICIOS_EQUIVALENTES[k];
+  if (NO_SON_SERVICIOS.indexOf(k) !== -1) return '';
+  return null;
+}
+
+/** Servicios para elegir: la lista fija, los que ya están en el inventario y los agregados aquí. */
+function serviciosExtra() {
+  const extra = (ls.get('servicios', []) || []).slice();
+  (registros || []).forEach(function(r) {
+    const t = String(r.dependencia || '').trim();
+    if (t && servicioUnico(t, extra) === null) extra.push(t);
+  });
+  return extra;
+}
+
+function opcionesServicio() {
+  return LISTA_SERVICIOS.concat(serviciosExtra()).sort(function(a, b) { return a.localeCompare(b, 'es'); });
+}
+
+/** Los más usados, para mostrar antes de escribir. */
+function serviciosFrecuentes(n) {
+  const cuenta = {};
+  (registros || []).forEach(function(r) { if (!vacio(r.dependencia)) cuenta[r.dependencia] = (cuenta[r.dependencia] || 0) + 1; });
+  return Object.keys(cuenta).sort(function(a, b) { return cuenta[b] - cuenta[a]; }).slice(0, n);
+}
+
+function htmlChipsServicio(c, consulta, val) {
+  const q = claveServicio(consulta);
+  let ops;
+  if (!q) {
+    ops = serviciosFrecuentes(8);
+    if (!ops.length) ops = LISTA_SERVICIOS.slice(0, 8);
+  } else {
+    ops = opcionesServicio().filter(function(o) { return claveServicio(o).indexOf(q) !== -1; }).slice(0, 12);
+  }
+  ops = ops.filter(function(o) { return o !== val; });
+
+  let html = ops.map(function(o) {
+    return '<button type="button" class="chip" aria-pressed="false" data-campo="' + c.k + '" data-valor="' + esc(o) + '">' + esc(o) + '</button>';
+  }).join('');
+
+  if (q) {
+    const unico = servicioUnico(consulta, serviciosExtra());
+    if (unico === null && q.length >= 3) {
+      const nuevo = String(consulta).trim().replace(/\s+/g, ' ');
+      const bonito = nuevo.charAt(0).toUpperCase() + nuevo.slice(1);
+      html += '<button type="button" class="chip nuevo" data-nuevo-serv="1" data-campo="' + c.k + '" data-valor="' + esc(bonito) + '">' +
+        ico('add') + 'Agregar servicio «' + esc(bonito) + '»</button>';
+    } else if (unico === '') {
+      html += '<p class="ayuda" style="margin:0">«' + esc(consulta.trim()) + '» es un lugar, no un servicio: escríbelo en Punto exacto.</p>';
+    } else if (!ops.length && unico && unico !== val) {
+      html += '<button type="button" class="chip" aria-pressed="false" data-campo="' + c.k + '" data-valor="' + esc(unico) + '">' + esc(unico) + '</button>';
+    }
+    if (!html) html = '<p class="ayuda" style="margin:0">No hay servicios con ese nombre.</p>';
+  }
+  return html;
+}
+
 function ordenNivel(nivel) {
   const t = String(nivel || '').trim().toLowerCase();
   if (t === 'sótano' || t === 'sotano') return -1;
@@ -97,9 +216,9 @@ const CAMPOS = [
   { k: 'nivel', l: 'Piso', t: 'pisos', o: function(v) { return nivelesDe(v.edificacion); },
     req: true, paso: 1, secc: 'Dónde está', vacio: 'Elige primero la edificación.' },
 
-  { k: 'tipoUbicacion', l: 'Tipo de ubicación', t: 'chips', o: LISTA_UBICACIONES, req: true, paso: 1, secc: 'Ubicación exacta' },
-  { k: 'areaZona', l: 'Área / Zona', t: 'texto', ph: 'Pasillo principal, acceso UCI, recepción', req: true, paso: 1, secc: 'Ubicación exacta' },
-  { k: 'dependencia', l: 'Dependencia', t: 'texto', ph: 'UCI, urgencias, administración', paso: 1, secc: 'Ubicación exacta' },
+  // "dependencia" y "areaZona" por dentro; en pantalla y en la hoja son "Servicio" y "Punto exacto"
+  { k: 'dependencia', l: 'Servicio', t: 'servicio', req: true, paso: 1, secc: 'Ubicación exacta' },
+  { k: 'areaZona', l: 'Punto exacto', t: 'texto', ph: 'Qué mira. Ej.: estar de enfermería B', req: true, paso: 1, secc: 'Ubicación exacta' },
 
   { k: 'tipoCamara', l: 'Tipo de cámara', t: 'seg', o: LISTA_TIPOS_CAMARA, req: true, paso: 2, secc: 'La cámara' },
   { k: 'marca', l: 'Marca', t: 'texto', ph: 'Hikvision, Dahua', lista: 'listaMarcas', paso: 2, secc: 'La cámara' },
@@ -476,7 +595,14 @@ function htmlCampo(c, v, errores, prefijo) {
   const error = errores[c.k];
   let control = '';
 
-  if (c.t === 'seg' || c.t === 'chips' || c.t === 'pisos') {
+  if (c.t === 'servicio') {
+    control =
+      (val ? '<div class="chips" style="margin-bottom:10px"><button type="button" class="chip" aria-pressed="true" data-campo="' + c.k +
+        '" data-valor="' + esc(val) + '">' + ico('check') + esc(val) + '</button></div>' : '') +
+      '<input id="' + id + '" class="entrada" type="search" autocomplete="off" data-buscar-serv="' + c.k + '" placeholder="' +
+        (val ? 'Cambiar: escribe otro servicio' : 'Busca: UCI, urgencias, farmacia…') + '">' +
+      '<div class="chips" style="margin-top:10px" data-lista-serv="' + c.k + '">' + htmlChipsServicio(c, '', val) + '</div>';
+  } else if (c.t === 'seg' || c.t === 'chips' || c.t === 'pisos') {
     const ops = opcionesDe(c, v);
 
     if (!ops.length) {
@@ -505,7 +631,7 @@ function htmlCampo(c, v, errores, prefijo) {
       ' placeholder="' + esc(c.ph || '') + '">';
   }
 
-  const conEntrada = ['texto', 'fecha', 'area'].indexOf(c.t) !== -1;
+  const conEntrada = ['texto', 'fecha', 'area', 'servicio'].indexOf(c.t) !== -1;
 
   return '<div class="campo' + (error ? ' mal' : '') + '" id="campo_' + id + '">' +
     (conEntrada ? '<label class="etq" for="' + id + '">' : '<div class="etq">') + '<span>' + esc(c.l) + '</span>' + (conEntrada ? '</label>' : '</div>') +
@@ -949,7 +1075,8 @@ const FILTROS = [
   ['conmtto', 'Con revisión inicial', function(r) { return !!ultimoMtto(r); }],
   ['incompleta', 'Hoja de vida incompleta', function(r) { return avanceHV(datosDe(r)).pct < 100; }],
   ['completa', 'Hoja de vida completa', function(r) { return avanceHV(datosDe(r)).pct === 100; }],
-  ['sintorre', 'Sin torre', function(r) { return faltaTorre(datosDe(r)); }]
+  ['sintorre', 'Sin torre', function(r) { return faltaTorre(datosDe(r)); }],
+  ['sinservicio', 'Sin servicio', function(r) { return vacio(datosDe(r).dependencia); }]
 ];
 
 function claseFila(r) {
@@ -1262,10 +1389,9 @@ function htmlFicha(r) {
   ].join('');
 
   const ubicacion = [
-    fila('areaZona', 'Área / Zona', d.areaZona),
-    fila('tipoUbicacion', 'Tipo de ubicación', d.tipoUbicacion),
+    fila('dependencia', 'Servicio', d.dependencia),
+    fila('areaZona', 'Punto exacto', d.areaZona),
     fila('subzona', 'Torre', d.subzona),
-    fila('dependencia', 'Dependencia', d.dependencia),
     fila('referencia', 'Referencia', d.referencia)
   ].join('');
 
@@ -1538,11 +1664,10 @@ async function construirPdfHV(r) {
   const pares = [
     ['Sede', d.sede, 'Edificación', d.edificacion],
     ['Piso', d.nivel, 'Torre', d.subzona],
-    ['Área / Zona', d.areaZona, 'Dependencia', d.dependencia],
-    ['Tipo de ubicación', d.tipoUbicacion, 'Referencia', d.referencia],
-    ['Tipo de cámara', d.tipoCamara, 'Marca', d.marca],
-    ['Modelo', d.modelo, 'Serial', d.serial],
-    ['Visión nocturna', d.visionNocturna, 'Audio', d.audio],
+    ['Servicio', d.dependencia || 'Sin servicio', 'Punto exacto', d.areaZona],
+    ['Referencia', d.referencia, 'Tipo de cámara', d.tipoCamara],
+    ['Marca', d.marca, 'Modelo', d.modelo],
+    ['Serial', d.serial, 'Visión nocturna · Audio', [d.visionNocturna, d.audio].filter(String).join(' · ')],
     ['IP', d.ip, 'NVR / DVR · Canal', [d.nvr, d.canal].filter(String).join(' · ')],
     ['Estado físico', d.estadoFisico, 'Estado de cableado', d.estadoCableado],
     ['Último mantenimiento', ultimoMtto(d), 'Próximo mantenimiento', fechaCorta(d.proximoMantenimiento)],
@@ -2174,6 +2299,10 @@ function enlazarEventos() {
 
     // Opciones de los formularios de cámara
     if (b.dataset.campo && b.dataset.valor !== undefined) {
+      if (b.dataset.nuevoServ) {
+        const propios = ls.get('servicios', []) || [];
+        if (propios.indexOf(b.dataset.valor) === -1) { propios.push(b.dataset.valor); ls.set('servicios', propios); }
+      }
       const editando = !!b.closest('#detalle');
       const v = editando ? (S.modo === 'completar' ? S.cp : S.ed) : S.reg;
       elegir(v, b.dataset.campo, b.dataset.valor);
@@ -2236,6 +2365,14 @@ function enlazarEventos() {
   // Textos: se guardan sin volver a pintar (para no perder el cursor)
   document.addEventListener('input', function(ev) {
     const t = ev.target;
+
+    if (t.dataset.buscarServ) {
+      const editando = !!t.closest('#detalle');
+      const v = editando ? (S.modo === 'completar' ? S.cp : S.ed) : S.reg;
+      const caja = t.parentNode.querySelector('[data-lista-serv]');
+      if (caja) caja.innerHTML = htmlChipsServicio(campoDe(t.dataset.buscarServ), t.value, String(v[t.dataset.buscarServ] || ''));
+      return;
+    }
 
     if (t.dataset.campo) {
       const editando = !!t.closest('#detalle');
