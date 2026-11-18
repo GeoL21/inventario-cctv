@@ -20,7 +20,8 @@ El registro se hace desde celulares. Al jefe de monitoreo le pidieron la hoja de
 - Columnas nuevas al final de `INVENTARIO_CCTV`: IP, NVR / DVR, Canal.
 - "Subzona" se llama ahora **"Torre"** y "Nivel" se llama **"Piso"** en la hoja y la app (las claves internas siguen siendo `subzona` y `nivel`).
   Barranquilla: torres A, B y C. Baranoa - Clínica: torres A y B (su piso 7 es la azotea; no hay "Azotea").
-  Edificio de Dependencias: "No aplica".
+  Edificio de Dependencias: "No aplica". "Ninguna" = cámara de la clínica que no está en una torre (cuenta como completa;
+  el "No aplica" viejo en las clínicas se sigue pidiendo para revisarlo).
 - "Dependencia" se llama **"Servicio"** y "Área / Zona" se llama **"Punto exacto"** (claves `dependencia` y `areaZona`).
   El servicio se elige de una lista con buscador (`LISTA_SERVICIOS`, igual en app.js y Codigo.gs); las formas
   viejas se unifican con `SERVICIOS_EQUIVALENTES` (una vez, marca `SERVICIOS_V1`) y al guardar. Lo que era un

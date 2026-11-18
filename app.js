@@ -63,8 +63,9 @@ function nivelesDe(edificacion) {
 
 /** Torres de cada edificación (edificaciones pegadas que se distinguen por torre). */
 function torresDe(edificacion) {
-  if (edificacion === 'Barranquilla - Clínica') return ['A', 'B', 'C'];
-  if (edificacion === 'Baranoa - Clínica') return ['A', 'B'];
+  // "Ninguna": la cámara está en la clínica pero no en una torre (afuera, otro edificio)
+  if (edificacion === 'Barranquilla - Clínica') return ['A', 'B', 'C', 'Ninguna'];
+  if (edificacion === 'Baranoa - Clínica') return ['A', 'B', 'Ninguna'];
   if (edificacion === 'Baranoa - Edificio de Dependencias') return ['No aplica'];
   return [];
 }
