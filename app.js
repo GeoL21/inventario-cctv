@@ -1389,9 +1389,12 @@ function htmlFicha(r) {
   ].join('');
 
   const ubicacion = [
+    fila('', 'Sede', d.sede),
+    fila('', 'Edificación', String(d.edificacion || '').replace(d.sede + ' - ', '')),
+    fila('nivel', 'Piso', d.nivel),
+    fila('subzona', 'Torre', d.subzona),
     fila('dependencia', 'Servicio', d.dependencia),
     fila('areaZona', 'Punto exacto', d.areaZona),
-    fila('subzona', 'Torre', d.subzona),
     fila('referencia', 'Referencia', d.referencia)
   ].join('');
 
