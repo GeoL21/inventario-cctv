@@ -2545,7 +2545,17 @@ async function iniciar() {
   setInterval(pintarHora, 30000);
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(function(e) { console.error('Sin modo sin señal', e); });
+    navigator.serviceWorker.register('sw.js').then(function(reg) {
+      // Al volver a la app, revisa si hay una versión nueva publicada
+      document.addEventListener('visibilitychange', function() { if (!document.hidden) reg.update().catch(function() {}); });
+    }).catch(function(e) { console.error('Sin modo sin señal', e); });
+
+    // Cuando la versión nueva toma el control, se avisa para recargar con un toque
+    let habiaControl = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', function() {
+      if (!habiaControl) { habiaControl = true; return; }   // primera instalación: nada que avisar
+      toast('sync', 'Hay una versión nueva de la app', 600000, { texto: 'Actualizar', fn: function() { location.reload(); } });
+    });
   }
 
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function() {});
