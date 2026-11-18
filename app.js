@@ -52,13 +52,21 @@ function nivelesDe(edificacion) {
     for (let i = 1; i <= 11; i++) n.push('Piso ' + i);
     n.push('Azotea');
   } else if (edificacion === 'Baranoa - Clínica') {
+    // El piso 7 es la azotea: no se lista aparte
     n.push('Sótano');
     for (let i = 1; i <= 7; i++) n.push('Piso ' + i);
-    n.push('Azotea');
   } else if (edificacion === 'Baranoa - Edificio de Dependencias') {
     n.push('Planta 1', 'Planta 2', 'Planta 3');
   }
   return n;
+}
+
+/** Torres de cada edificación (edificaciones pegadas que se distinguen por torre). */
+function torresDe(edificacion) {
+  if (edificacion === 'Barranquilla - Clínica') return ['A', 'B', 'C'];
+  if (edificacion === 'Baranoa - Clínica') return ['A', 'B'];
+  if (edificacion === 'Baranoa - Edificio de Dependencias') return ['No aplica'];
+  return [];
 }
 
 function ordenNivel(nivel) {
@@ -77,9 +85,11 @@ const CAMPOS = [
   { k: 'sede', l: 'Sede', t: 'seg', o: ['Barranquilla', 'Baranoa'], req: true, paso: 1, secc: 'Dónde está' },
   { k: 'edificacion', l: 'Edificación', t: 'seg', o: function(v) { return EDIFICACIONES_POR_SEDE[v.sede] || []; },
     req: true, paso: 1, secc: 'Dónde está', vacio: 'Elige primero la sede.' },
+  // La columna sigue llamándose "subzona" por dentro; en pantalla y en la hoja es "Torre"
+  { k: 'subzona', l: 'Torre', t: 'seg', o: function(v) { return torresDe(v.edificacion); },
+    paso: 1, secc: 'Dónde está', vacio: 'Elige primero la edificación.' },
   { k: 'nivel', l: 'Nivel', t: 'pisos', o: function(v) { return nivelesDe(v.edificacion); },
     req: true, paso: 1, secc: 'Dónde está', vacio: 'Elige primero la edificación.' },
-  { k: 'subzona', l: 'Subzona', t: 'chips', o: ['A', 'B', 'C', 'No aplica'], paso: 1, secc: 'Dónde está' },
 
   { k: 'tipoUbicacion', l: 'Tipo de ubicación', t: 'chips', o: LISTA_UBICACIONES, req: true, paso: 1, secc: 'Ubicación exacta' },
   { k: 'areaZona', l: 'Área / Zona', t: 'texto', ph: 'Pasillo principal, acceso UCI, recepción', req: true, paso: 1, secc: 'Ubicación exacta' },
@@ -511,6 +521,8 @@ function elegir(v, campo, valor) {
 
   if (campo === 'sede' || campo === 'edificacion') {
     if (nivelesDe(v.edificacion).indexOf(v.nivel) === -1) v.nivel = '';
+    const torres = torresDe(v.edificacion);
+    if (torres.indexOf(v.subzona) === -1) v.subzona = torres.length === 1 ? torres[0] : '';
   }
 }
 
@@ -1242,7 +1254,7 @@ function htmlFicha(r) {
   const ubicacion = [
     fila('areaZona', 'Área / Zona', d.areaZona),
     fila('tipoUbicacion', 'Tipo de ubicación', d.tipoUbicacion),
-    fila('subzona', 'Subzona', d.subzona),
+    fila('subzona', 'Torre', d.subzona),
     fila('dependencia', 'Dependencia', d.dependencia),
     fila('referencia', 'Referencia', d.referencia)
   ].join('');
@@ -1512,7 +1524,7 @@ async function construirPdfHV(r) {
   seccion('Datos técnicos');
   const pares = [
     ['Sede', d.sede, 'Edificación', d.edificacion],
-    ['Nivel', d.nivel, 'Subzona', d.subzona],
+    ['Nivel', d.nivel, 'Torre', d.subzona],
     ['Área / Zona', d.areaZona, 'Dependencia', d.dependencia],
     ['Tipo de ubicación', d.tipoUbicacion, 'Referencia', d.referencia],
     ['Tipo de cámara', d.tipoCamara, 'Marca', d.marca],
@@ -2014,7 +2026,7 @@ function pintarResumen() {
     ['Sin NVR / DVR', cuenta(function(r) { return vacio(datosDe(r).nvr); })],
     ['Sin canal', cuenta(function(r) { return vacio(datosDe(r).canal); })],
     ['Sin serial', cuenta(function(r) { return vacio(datosDe(r).serial); })],
-    ['Sin subzona', cuenta(function(r) { return vacio(r.subzona); })],
+    ['Sin torre', cuenta(function(r) { return vacio(r.subzona); })],
     ['Estado físico sin revisar', cuenta(function(r) { return !cumple(CRITERIOS[5], datosDe(r)); })],
     ['Cableado sin revisar', cuenta(function(r) { return !cumple(CRITERIOS[6], datosDe(r)); })],
     ['Sin fotografía', cuenta(function(r) { return vacio(r.fotografia); })]

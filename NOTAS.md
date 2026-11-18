@@ -18,6 +18,9 @@ El registro se hace desde celulares. Al jefe de monitoreo le pidieron la hoja de
 - Cada mantenimiento, revisión o falla es una fila en `HISTORIAL_CCTV`. Al guardar uno se actualiza
   "Último mantenimiento" de la cámara en `INVENTARIO_CCTV`.
 - Columnas nuevas al final de `INVENTARIO_CCTV`: IP, NVR / DVR, Canal.
+- "Subzona" se llama ahora **"Torre"** en la hoja y la app (la clave interna sigue siendo `subzona`).
+  Barranquilla: torres A, B y C. Baranoa - Clínica: torres A y B (su piso 7 es la azotea; no hay "Azotea").
+  Edificio de Dependencias: "No aplica".
 - El script lee y escribe por NOMBRE de encabezado. Al editar no reescribe la celda de la foto (chip).
 - `PANEL_CONTROL`: el script solo escribe en las columnas A a H. Las columnas J en adelante son NOTAS
   y nunca se tocan. (La versión 3 hacía `panel.clear()` y borraba lo que se agregaba a mano.)

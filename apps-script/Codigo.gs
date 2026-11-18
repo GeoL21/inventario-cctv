@@ -69,7 +69,7 @@ const CAMPOS = [
   ['sede', 'Sede'],
   ['edificacion', 'Edificación'],
   ['nivel', 'Nivel'],
-  ['subzona', 'Subzona'],
+  ['subzona', 'Torre'],     // antes "Subzona" (se renombra sola en la hoja)
   ['dependencia', 'Dependencia'],
   ['tipoUbicacion', 'Tipo de ubicación'],
   ['areaZona', 'Área / Zona'],
@@ -165,6 +165,7 @@ const LISTA_TIPOS_UBICACION = [
   'Cuarto técnico', 'Cocina', 'Lavandería', 'Otro'
 ];
 
+// Torres: Barranquilla A, B y C; Baranoa A y B (edificaciones pegadas)
 const LISTA_SUBZONAS = ['A', 'B', 'C', 'No aplica'];
 
 
@@ -372,6 +373,18 @@ function asegurarEstructura_() {
 
   if (!inventario) {
     throw new Error('No existe la hoja ' + NOMBRE_HOJA_INVENTARIO + '.');
+  }
+
+  // "Subzona" pasó a llamarse "Torre" (17 nov 2026)
+  const iSubzona = leerEncabezados_(inventario).indexOf('Subzona');
+  if (iSubzona !== -1) {
+    inventario.getRange(1, iSubzona + 1).setValue('Torre');
+    const config = ss.getSheetByName(NOMBRE_HOJA_CONFIG);
+    if (config) {
+      const t = config.createTextFinder('SUBZONAS').matchEntireCell(true).findNext();
+      if (t) t.setValue('TORRES');
+    }
+    SpreadsheetApp.flush();
   }
 
   // Columnas nuevas al final del inventario
@@ -1653,7 +1666,7 @@ function actualizarPanel_() {
   const f0 = fila;
   const finA = tabla2(f0, 1, 'ESTADO', 'CANTIDAD', contarConLista_(camaras.map(function(c) { return c.estado; }), LISTA_ESTADOS));
   const finB = tabla2(f0, 4, 'TIPO DE CÁMARA', 'CANTIDAD', contarConLista_(camaras.map(function(c) { return c.tipoCamara; }), LISTA_TIPOS_CAMARA));
-  const finC = tabla2(f0, 7, 'SUBZONA', 'CÁMARAS', contarConLista_(camaras.map(function(c) { return c.subzona; }), LISTA_SUBZONAS));
+  const finC = tabla2(f0, 7, 'TORRE', 'CÁMARAS', contarConLista_(camaras.map(function(c) { return c.subzona; }), LISTA_SUBZONAS));
   fila = Math.max(finA, finB, finC) + 2;
 
   const f1 = fila;
@@ -1665,7 +1678,7 @@ function actualizarPanel_() {
   seccion('DATOS QUE FALTAN (para completar la hoja de vida)');
 
   const faltantes = [
-    ['Sin subzona', function(c) { return vacio_(c.subzona); }],
+    ['Sin torre', function(c) { return vacio_(c.subzona); }],
     ['Sin serial', function(c) { return vacio_(c.serial); }],
     ['Sin marca', function(c) { return vacio_(c.marca); }],
     ['Sin IP', function(c) { return vacio_(c.ip); }],
@@ -2109,7 +2122,7 @@ function paginaHojaDeVida_(c, historial, logo, foto, hoy, ultima) {
   const datos =
     '<table class="datos">' +
     fila('Sede', c.sede, 'Edificación', c.edificacion) +
-    fila('Nivel', c.nivel, 'Subzona', c.subzona) +
+    fila('Nivel', c.nivel, 'Torre', c.subzona) +
     fila('Área / Zona', c.areaZona, 'Dependencia', c.dependencia) +
     fila('Tipo de ubicación', c.tipoUbicacion, 'Referencia', c.referencia) +
     fila('Tipo de cámara', c.tipoCamara, 'Marca', c.marca) +
