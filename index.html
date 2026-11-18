@@ -289,7 +289,9 @@ button.barra-fila{width:100%;text-align:left}
   #vBuscar{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:24px;align-items:start}
   #vBuscar>.col-lista{display:flex!important;flex-direction:column;gap:14px}
   .filtros{margin:0;padding:2px 0 4px;flex-wrap:wrap;overflow:visible}
-  #vBuscar>.col-detalle{position:sticky;top:16px;max-height:calc(100dvh - 32px);overflow:auto;border-radius:28px}
+  /* La columna de la ficha termina encima de la barra de Guardar (antes la barra tapaba lo último: Técnico) */
+  #vBuscar>.col-detalle{position:sticky;top:16px;max-height:calc(100dvh - 16px - 120px);overflow:auto;border-radius:28px;padding-bottom:24px}
+  #vBuscar{padding-bottom:130px}
   #vBuscar .volver-lista{display:none}
   .solo-pc{display:block}
   .col-detalle .accion{position:static;padding:0;background:none}
