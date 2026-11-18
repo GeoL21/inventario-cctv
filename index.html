@@ -159,7 +159,20 @@ button.dato{width:100%;text-align:left}
 @media (hover:hover){.btn.prin:hover{background:var(--vino-osc)}.btn.sec:hover{background:var(--linea)}}
 
 /* ---------- Buscar ---------- */
-.buscador{display:flex;align-items:center;gap:8px;background:var(--tarjeta);border-radius:28px;padding:0 8px 0 16px;min-height:56px}
+.buscador{display:flex;align-items:center;gap:8px;background:#fff;box-shadow:inset 0 0 0 1.5px var(--linea);border-radius:28px;padding:0 8px 0 16px;min-height:56px;color:var(--suave)}
+.buscador:focus-within{box-shadow:inset 0 0 0 2px var(--vino)}
+.chip.activo{background:var(--vino);color:#fff;border-color:var(--vino);font-weight:800}
+.grupo-piso{display:flex;flex-direction:column;gap:4px}
+.grupo-piso+.grupo-piso{margin-top:14px}
+.cab-piso{position:sticky;top:0;z-index:3;margin:0 0 2px;display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:10px 16px;border-radius:16px;background:var(--vino);color:#fff;font-size:16px;font-weight:600;box-shadow:0 4px 10px rgba(132,48,63,.18)}
+.cab-piso b{font-size:17px;font-weight:800;margin-right:8px}
+.cab-piso small{font-size:13px;opacity:.85}
+.cab-piso .cuenta{display:inline-flex;align-items:center;gap:8px;font-size:14px;white-space:nowrap}
+.cab-piso .tag{background:var(--ambar)}
+button.barra-fila{width:100%;text-align:left}
+.barra-fila b{display:inline-flex;align-items:center;justify-content:flex-end;gap:2px}
+.barra-fila b .ms{color:var(--apagado)}
 .buscador input{flex:1;min-width:0;border:0;background:transparent;outline:0;font-size:17px;font-weight:600;min-height:52px}
 .buscador input::placeholder{color:var(--apagado);font-weight:500}
 .filtros{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
@@ -222,7 +235,7 @@ button.dato{width:100%;text-align:left}
 .cifra b{display:block;font-size:34px;line-height:1.1;font-weight:800}
 .cifra span{display:flex;align-items:center;gap:6px;font-size:14px;color:var(--suave);margin-top:4px}
 .cifra.ok b{color:var(--ok-txt)}.cifra.av b{color:var(--ambar-txt)}.cifra.mal b{color:var(--rojo-txt)}
-.barra-fila{display:grid;grid-template-columns:minmax(96px,38%) 1fr 44px;align-items:center;gap:10px;padding:10px 20px;font-size:15px}
+.barra-fila{display:grid;grid-template-columns:minmax(96px,38%) 1fr 56px;align-items:center;gap:10px;padding:10px 20px;font-size:15px}
 .barra-fila .bar{height:12px;border-radius:6px;background:#fff;overflow:hidden}
 .barra-fila .bar i{display:block;height:100%;border-radius:6px;background:var(--vino);transition:width 450ms var(--m3)}
 .barra-fila b{text-align:right;font-weight:800}
@@ -345,7 +358,7 @@ button.dato{width:100%;text-align:left}
   <!-- BUSCAR -->
   <section id="vBuscar" class="vista oculto" aria-labelledby="titulo">
     <div class="col-lista">
-      <label class="buscador">
+      <label class="buscador" style="margin-top:4px">
         <span class="ms" aria-hidden="true">search</span>
         <input id="terminoBusqueda" type="search" placeholder="ID, serial, piso, área, marca…" aria-label="Buscar cámara" autocomplete="off">
       </label>

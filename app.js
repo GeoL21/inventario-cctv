@@ -238,6 +238,7 @@ const S = {
   ed: null,           // formulario de edición
   cp: null,           // completar lo que falta
   edFoto: '',
+  extra: null,        // filtro que viene del Resumen (piso, estado, tipo)
   // Resumen
   sedeResumen: ''
 };
@@ -936,13 +937,18 @@ function pintarBuscar() {
 
   const texto = S.texto.trim().toLowerCase();
 
+  const extra = S.extra;
+
   let base = registros.filter(function(r) {
     if (S.sede && !igual(r.sede, S.sede)) return false;
+    if (extra && !Object.keys(extra.crit).every(function(k) { return igual(r[k], extra.crit[k]); })) return false;
     if (!texto) return true;
     return Object.keys(r).some(function(k) { return String(r[k] || '').toLowerCase().indexOf(texto) !== -1; });
   });
 
   $('filtros').innerHTML =
+    (extra ? '<button type="button" class="chip activo" data-quitar-extra="1" aria-label="Quitar filtro ' + esc(extra.etiqueta) + '">' +
+      esc(extra.etiqueta) + ico('close') + '</button>' : '') +
     ['', 'Barranquilla', 'Baranoa'].map(function(s) {
       return '<button type="button" class="chip" aria-pressed="' + (S.sede === s) + '" data-sede="' + s + '">' +
         (S.sede === s ? ico('check') : '') + (s || 'Las dos sedes') + '</button>';
@@ -956,27 +962,55 @@ function pintarBuscar() {
   const filtro = FILTROS.filter(function(f) { return f[0] === S.filtro; })[0] || FILTROS[0];
   const res = base.filter(filtro[2]);
 
-  const MAX = 150;
   contador.textContent = (res.length === 1 ? '1 cámara' : res.length + ' cámaras') +
-    (res.length > MAX ? ' · se muestran las primeras ' + MAX + '; escribe algo para reducir la lista' : '') +
     ' · inventario del ' + fecha12(fechaCopia);
 
   if (!res.length) {
     lista.innerHTML = '<div class="vacio"><b>No hay cámaras con ese filtro</b>Prueba con otra palabra o quita el filtro.</div>';
   } else {
-    lista.innerHTML = res.slice(0, MAX).map(function(r) {
-      const pct = avanceHV(datosDe(r)).pct;
-      return '<button type="button" class="fila toque ' + claseFila(r) + (S.sel === r.id ? ' sel' : '') + '" data-camara="' + esc(r.id) + '">' +
-        '<div class="txt"><div class="t1"><span class="num">' + esc(r.id) + '</span>' + tagEstado(r.estado) + '</div>' +
-        '<div class="t2">' + esc([r.nivel, r.areaZona].filter(String).join(' · ')) + '</div>' +
-        (tieneNovedad(r) ? '<div class="t-nov">' + ico('warning', 's lleno') + esc(vacio(r.observaciones) ? 'Novedad sin describir' : r.observaciones) + '</div>' : '') +
-        '<div class="t3">' + esc([r.edificacion, r.tipoCamara].filter(String).join(' · ')) +
-        ' · Hoja de vida ' + pct + ' %</div></div>' +
-        ico('chevron_right') + '</button>';
+    // Agrupadas por edificación y piso, en el orden del edificio
+    const grupos = {};
+    const orden = [];
+
+    res.forEach(function(r) {
+      const k = (r.edificacion || 'Sin edificación') + '|' + (r.nivel || 'Sin nivel');
+      if (!grupos[k]) { grupos[k] = []; orden.push(k); }
+      grupos[k].push(r);
+    });
+
+    orden.sort(function(a, b) {
+      const pa = a.split('|');
+      const pb = b.split('|');
+      const ea = TODAS_LAS_EDIFICACIONES.indexOf(pa[0]);
+      const eb = TODAS_LAS_EDIFICACIONES.indexOf(pb[0]);
+      return ((ea === -1 ? 99 : ea) - (eb === -1 ? 99 : eb)) || (ordenNivel(pa[1]) - ordenNivel(pb[1])) || pa[1].localeCompare(pb[1]);
+    });
+
+    lista.innerHTML = orden.map(function(k) {
+      const p = k.split('|');
+      const camaras = grupos[k].sort(function(a, b) { return String(a.id).localeCompare(String(b.id)); });
+      const conNovedad = camaras.filter(tieneNovedad).length;
+
+      return '<section class="grupo-piso" aria-label="' + esc(p[1] + ', ' + p[0]) + '">' +
+        '<h3 class="cab-piso"><span><b>' + esc(p[1]) + '</b><small>' + esc(p[0]) + '</small></span>' +
+        '<span class="cuenta">' + (conNovedad ? '<span class="tag av">' + ico('warning') + conNovedad + '</span>' : '') +
+        camaras.length + (camaras.length === 1 ? ' cámara' : ' cámaras') + '</span></h3>' +
+        camaras.map(htmlFilaCamara).join('') + '</section>';
     }).join('');
   }
 
   pintarDetalle();
+}
+
+function htmlFilaCamara(r) {
+      const pct = avanceHV(datosDe(r)).pct;
+      return '<button type="button" class="fila toque ' + claseFila(r) + (S.sel === r.id ? ' sel' : '') + '" data-camara="' + esc(r.id) + '">' +
+        '<div class="txt"><div class="t1"><span class="num">' + esc(r.id) + '</span>' + tagEstado(r.estado) + '</div>' +
+        '<div class="t2">' + esc(r.areaZona || r.tipoUbicacion || '') + '</div>' +
+        (tieneNovedad(r) ? '<div class="t-nov">' + ico('warning', 's lleno') + esc(vacio(r.observaciones) ? 'Novedad sin describir' : r.observaciones) + '</div>' : '') +
+        '<div class="t3">' + esc([r.tipoCamara, r.marca].filter(String).join(' · ')) +
+        ' · Hoja de vida ' + pct + ' %</div></div>' +
+        ico('chevron_right') + '</button>';
 }
 
 function abrirCamara(id) {
@@ -1900,16 +1934,24 @@ function pintarResumen() {
     return ids[String(h.idCamara).trim()] && f.getMonth() === ahora.getMonth() && f.getFullYear() === ahora.getFullYear();
   });
 
+  // filas: [nombre, cantidad, criterio para Buscar (opcional), etiqueta del filtro]
   function barras(filas, ocultarCeros) {
     const max = Math.max.apply(null, filas.map(function(f) { return f[1]; }).concat([1]));
     return filas.filter(function(f) { return !ocultarCeros || f[1]; }).map(function(f) {
-      return '<div class="barra-fila' + (f[1] ? '' : ' cero') + '"><span>' + esc(f[0]) + '</span>' +
-        '<span class="bar"><i style="width:' + Math.round(f[1] * 100 / max) + '%"></i></span><b>' + f[1] + '</b></div>';
+      const ir = f[2] && f[1] ? ' data-ir="' + esc(JSON.stringify({ crit: f[2], etiqueta: f[3] || f[0] })) + '"' : '';
+      return '<' + (ir ? 'button type="button"' : 'div') + ' class="barra-fila' + (f[1] ? '' : ' cero') + (ir ? ' toque' : '') + '"' + ir + '>' +
+        '<span>' + esc(f[0]) + '</span>' +
+        '<span class="bar"><i style="width:' + Math.round(f[1] * 100 / max) + '%"></i></span><b>' + f[1] +
+        (ir ? ico('chevron_right', 's') : '') + '</b></' + (ir ? 'button' : 'div') + '>';
     }).join('');
   }
 
   function contar(campo, base) {
-    const filas = base.map(function(n) { return [n, cuenta(function(r) { return igual(r[campo], n); })]; });
+    const filas = base.map(function(n) {
+      const crit = {};
+      crit[campo] = n;
+      return [n, cuenta(function(r) { return igual(r[campo], n); }), crit];
+    });
     const otros = total - filas.reduce(function(a, f) { return a + f[1]; }, 0);
     if (otros > 0) filas.push(['Otro o sin dato', otros]);
     return filas;
@@ -1926,7 +1968,7 @@ function pintarResumen() {
     nivelesDe(ed).forEach(function(n) { conteo[n] = 0; });
     propias.forEach(function(r) { const n = String(r.nivel || '').trim() || 'Sin nivel'; conteo[n] = (conteo[n] || 0) + 1; });
     const filas = Object.keys(conteo).sort(function(a, b) { return ordenNivel(a) - ordenNivel(b) || a.localeCompare(b); })
-      .map(function(n) { return [n, conteo[n]]; });
+      .map(function(n) { return [n, conteo[n], { edificacion: ed, nivel: n }, n + ' · ' + ed.replace(' - Clínica', '')]; });
     return '<div class="sub-grupo"><span>' + esc(ed) + '</span><span>' + propias.length + '</span></div>' + barras(filas, false);
   }).join('');
 
@@ -2082,6 +2124,18 @@ function enlazarEventos() {
     if (b.dataset.camara) { abrirCamara(b.dataset.camara); return; }
     if (b.dataset.sede !== undefined) { S.sede = b.dataset.sede; pintarBuscar(); return; }
     if (b.dataset.filtro !== undefined) { S.filtro = S.filtro === b.dataset.filtro ? '' : b.dataset.filtro; pintarBuscar(); return; }
+    if (b.dataset.ir) {
+      const ir = JSON.parse(b.dataset.ir);
+      S.extra = ir;
+      S.sede = S.sedeResumen;
+      S.texto = '';
+      $('terminoBusqueda').value = '';
+      S.filtro = '';
+      S.sel = null;
+      mostrarVista('vBuscar');
+      return;
+    }
+    if (b.dataset.quitarExtra) { S.extra = null; pintarBuscar(); return; }
     if (b.dataset.sedeResumen !== undefined) { S.sedeResumen = b.dataset.sedeResumen; pintarResumen(); return; }
     if (b.dataset.descartar) { descartarPendiente(b.dataset.descartar); return; }
 
