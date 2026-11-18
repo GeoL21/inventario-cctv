@@ -308,7 +308,9 @@ body{background:var(--fondo)}
 .cab h1{margin-top:36px}
 /* Títulos de sección y de piso negros */
 .secc{font-size:20px;line-height:28px;font-weight:660;color:#160D0E}
-.cab-piso,.cab-piso b{background:none!important;color:#160D0E!important;font-size:20px;line-height:28px;font-weight:660}
+/* Título del piso: barra fija al hacer scroll, de un tono más oscuro que las filas para que se note en qué piso vas */
+.cab-piso{background:#E7DCDD!important;color:#160D0E!important;border-radius:20px;padding:10px 16px;margin:16px 0 6px;box-shadow:0 0 0 6px var(--fondo)}
+.cab-piso b{background:none!important;color:#160D0E!important;font-size:20px;line-height:28px;font-weight:760}
 .cab-piso small{color:#45343A!important;font-weight:560}
 /* Sede y filtros como fichas: la activa en rosa suave */
 .seg{background:transparent}
