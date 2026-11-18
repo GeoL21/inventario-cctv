@@ -206,6 +206,8 @@ function ordenNivel(nivel) {
  * Campos de la cámara. t: seg (botones en una fila), chips, pisos,
  * texto, fecha, area. paso: en qué paso del registro va.
  */
+const IP_ANALOGA = 'No aplica (análoga)';
+
 const CAMPOS = [
   { k: 'sede', l: 'Sede', t: 'seg', o: ['Barranquilla', 'Baranoa'], req: true, paso: 1, secc: 'Dónde está' },
   { k: 'edificacion', l: 'Edificación', t: 'seg', o: function(v) { return EDIFICACIONES_POR_SEDE[v.sede] || []; },
@@ -226,7 +228,8 @@ const CAMPOS = [
   { k: 'serial', l: 'Serial', t: 'texto', paso: 2, secc: 'La cámara', mayus: true },
   { k: 'visionNocturna', l: 'Visión nocturna', t: 'chips', o: SI_NO, paso: 2, secc: 'Funciones' },
   { k: 'audio', l: 'Audio', t: 'chips', o: SI_NO, paso: 2, secc: 'Funciones' },
-  { k: 'ip', l: 'IP', t: 'texto', ph: '192.168.1.45', paso: 2, secc: 'Conexión', teclado: 'decimal' },
+  // Las cámaras análogas (Turbo HD, van a un DVR por coaxial) no tienen IP
+  { k: 'ip', l: 'IP', t: 'texto', ph: '192.168.1.45', paso: 2, secc: 'Conexión', teclado: 'decimal', atajo: IP_ANALOGA },
   { k: 'nvr', l: 'NVR / DVR', t: 'texto', ph: 'NVR-2', paso: 2, secc: 'Conexión', mayus: true },
   { k: 'canal', l: 'Canal', t: 'texto', ph: '07', paso: 2, secc: 'Conexión', teclado: 'numeric' },
 
@@ -628,6 +631,10 @@ function htmlCampo(c, v, errores, prefijo) {
       (c.teclado ? ' inputmode="' + c.teclado + '"' : '') +
       (c.mayus ? ' autocapitalize="characters"' : '') +
       ' placeholder="' + esc(c.ph || '') + '">';
+    if (c.atajo) {
+      control += '<div class="chips" style="margin-top:10px"><button type="button" class="chip" aria-pressed="' + (val === c.atajo) +
+        '" data-campo="' + c.k + '" data-valor="' + esc(c.atajo) + '">' + (val === c.atajo ? ico('check') : '') + esc(c.atajo) + '</button></div>';
+    }
   }
 
   const conEntrada = ['texto', 'fecha', 'area', 'servicio'].indexOf(c.t) !== -1;
