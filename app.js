@@ -941,7 +941,10 @@ function pintarBuscar() {
 
   let base = registros.filter(function(r) {
     if (S.sede && !igual(r.sede, S.sede)) return false;
-    if (extra && !Object.keys(extra.crit).every(function(k) { return igual(r[k], extra.crit[k]); })) return false;
+    // Un criterio puede ser un valor o una lista de valores (cualquiera de ellos)
+    if (extra && !Object.keys(extra.crit).every(function(k) {
+      return [].concat(extra.crit[k]).some(function(v) { return igual(r[k], v); });
+    })) return false;
     if (!texto) return true;
     return Object.keys(r).some(function(k) { return String(r[k] || '').toLowerCase().indexOf(texto) !== -1; });
   });
@@ -1934,6 +1937,13 @@ function pintarResumen() {
     return ids[String(h.idCamara).trim()] && f.getMonth() === ahora.getMonth() && f.getFullYear() === ahora.getFullYear();
   });
 
+  // Tarjeta de cifra que lleva a Buscar con esas cámaras (crit null = todas)
+  function cifra(clase, n, icono, texto, crit) {
+    const ir = JSON.stringify({ crit: crit || {}, etiqueta: crit ? texto : '' });
+    return '<button type="button" class="cifra toque ' + clase + '"' + (n ? ' data-ir="' + esc(ir) + '"' : ' disabled') + '>' +
+      '<b>' + n + '</b><span>' + ico(icono, 's') + texto + '</span>' + (n ? '<i class="ms ir" aria-hidden="true">chevron_right</i>' : '') + '</button>';
+  }
+
   // filas: [nombre, cantidad, criterio para Buscar (opcional), etiqueta del filtro]
   function barras(filas, ocultarCeros) {
     const max = Math.max.apply(null, filas.map(function(f) { return f[1]; }).concat([1]));
@@ -1993,10 +2003,10 @@ function pintarResumen() {
       }).join('') + '</div></div>' +
 
     '<div class="cifras ancho">' +
-      '<div class="cifra"><b>' + total + '</b><span>' + ico('videocam', 's') + 'Cámaras</span></div>' +
-      '<div class="cifra ok"><b>' + danImagen + '</b><span>' + ico('check', 's') + 'Dan imagen</span></div>' +
-      '<div class="cifra av"><b>' + novedad + '</b><span>' + ico('warning', 's') + 'Con novedad o intermitentes</span></div>' +
-      '<div class="cifra mal"><b>' + fuera + '</b><span>' + ico('error', 's') + 'Fuera de servicio</span></div>' +
+      cifra('', total, 'videocam', 'Cámaras', null) +
+      cifra('ok', danImagen, 'check', 'Dan imagen', { estado: ['Operativa', 'Operativa con novedad'] }) +
+      cifra('av', novedad, 'warning', 'Con novedad o intermitentes', { estado: ['Operativa con novedad', 'Intermitente'] }) +
+      cifra('mal', fuera, 'error', 'Fuera de servicio', { estado: ['Fuera de servicio'] }) +
     '</div>' +
 
     '<p class="nota ancho">Inventario del ' + esc(fecha12(fechaCopia).replace(/\.$/, '')) +
@@ -2126,7 +2136,7 @@ function enlazarEventos() {
     if (b.dataset.filtro !== undefined) { S.filtro = S.filtro === b.dataset.filtro ? '' : b.dataset.filtro; pintarBuscar(); return; }
     if (b.dataset.ir) {
       const ir = JSON.parse(b.dataset.ir);
-      S.extra = ir;
+      S.extra = Object.keys(ir.crit).length ? ir : null;
       S.sede = S.sedeResumen;
       S.texto = '';
       $('terminoBusqueda').value = '';

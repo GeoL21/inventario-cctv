@@ -9,7 +9,7 @@
  * VERSION para que los celulares renueven la copia.
  *****************************************************************/
 
-const VERSION = 'cctv-v7';
+const VERSION = 'cctv-v8';
 const FUENTES = 'cctv-fuentes-v1';
 
 const ARCHIVOS = [

@@ -231,7 +231,9 @@ button.barra-fila{width:100%;text-align:left}
 
 /* Resumen */
 .cifras{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-.cifra{background:var(--tarjeta);border-radius:24px;padding:16px}
+.cifra{position:relative;width:100%;text-align:left;background:var(--tarjeta);border-radius:24px;padding:16px}
+.cifra .ir{position:absolute;top:14px;right:12px;color:var(--apagado);font-style:normal}
+.cifra:disabled{opacity:1}
 .cifra b{display:block;font-size:34px;line-height:1.1;font-weight:800}
 .cifra span{display:flex;align-items:center;gap:6px;font-size:14px;color:var(--suave);margin-top:4px}
 .cifra.ok b{color:var(--ok-txt)}.cifra.av b{color:var(--ambar-txt)}.cifra.mal b{color:var(--rojo-txt)}
