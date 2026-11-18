@@ -16,7 +16,9 @@ Revisa:
   `prefers-reduced-motion`); completo en verde `#E3F4E8`. Nunca filas rosadas `#F7E3E6` en una lista.
 - **Chip "Listo"**: sello con check (Material Symbols "verified", relleno), fondo `#D3F0DC`, texto `#1B5E33`.
   Solo en secciones que el usuario llena; nunca en una sección que siempre trae una opción marcada.
-- **Letra** Google Sans Flex: texto normal 500, nunca 400. Título de pantalla 34 px / 800.
+- **Letra** Google Sans Flex cargada como rango variable (`wght@400..900`). Grosores (17 nov 2026): texto normal
+  **560**; negritas 660 / 760 / 860 (los antiguos 500, 600, 700 y 800 subidos 60). Nunca 400 ni 500 en texto normal.
+  Título de pantalla 34 px / 860.
 - **Íconos** Material Symbols Rounded; relleno en el elemento activo.
 - **Grupos de tarjetas**: 3 px de separación, esquinas 28 px en los extremos y 6 px en medio.
 - **Sin tarjetas de avance ni anillos de progreso** (ocupan pantalla y obligan a hacer scroll). El paso actual va en
