@@ -79,7 +79,7 @@ const CAMPOS = [
     req: true, paso: 1, secc: 'Dónde está', vacio: 'Elige primero la sede.' },
   { k: 'nivel', l: 'Nivel', t: 'pisos', o: function(v) { return nivelesDe(v.edificacion); },
     req: true, paso: 1, secc: 'Dónde está', vacio: 'Elige primero la edificación.' },
-  { k: 'subzona', l: 'Subzona', t: 'seg', o: ['A', 'B', 'C', 'No aplica'], paso: 1, secc: 'Dónde está' },
+  { k: 'subzona', l: 'Subzona', t: 'chips', o: ['A', 'B', 'C', 'No aplica'], paso: 1, secc: 'Dónde está' },
 
   { k: 'tipoUbicacion', l: 'Tipo de ubicación', t: 'chips', o: LISTA_UBICACIONES, req: true, paso: 1, secc: 'Ubicación exacta' },
   { k: 'areaZona', l: 'Área / Zona', t: 'texto', ph: 'Pasillo principal, acceso UCI, recepción', req: true, paso: 1, secc: 'Ubicación exacta' },
@@ -90,15 +90,15 @@ const CAMPOS = [
   { k: 'modelo', l: 'Modelo', t: 'texto', paso: 2, secc: 'La cámara' },
   { k: 'serial', l: 'Serial', t: 'texto', paso: 2, secc: 'La cámara', mayus: true },
   { k: 'referencia', l: 'Referencia / código interno', t: 'texto', paso: 2, secc: 'La cámara' },
-  { k: 'visionNocturna', l: 'Visión nocturna', t: 'seg', o: SI_NO, paso: 2, secc: 'Funciones' },
-  { k: 'audio', l: 'Audio', t: 'seg', o: SI_NO, paso: 2, secc: 'Funciones' },
+  { k: 'visionNocturna', l: 'Visión nocturna', t: 'chips', o: SI_NO, paso: 2, secc: 'Funciones' },
+  { k: 'audio', l: 'Audio', t: 'chips', o: SI_NO, paso: 2, secc: 'Funciones' },
   { k: 'ip', l: 'IP', t: 'texto', ph: '192.168.1.45', paso: 2, secc: 'Conexión', teclado: 'decimal' },
   { k: 'nvr', l: 'NVR / DVR', t: 'texto', ph: 'NVR-2', paso: 2, secc: 'Conexión', mayus: true },
   { k: 'canal', l: 'Canal', t: 'texto', ph: '07', paso: 2, secc: 'Conexión', teclado: 'numeric' },
 
   { k: 'estado', l: 'Estado operativo', t: 'chips', o: LISTA_ESTADOS, req: true, paso: 3, secc: 'Estado' },
-  { k: 'estadoFisico', l: 'Estado físico', t: 'seg', o: ESTADO_EQUIPO, paso: 3, secc: 'Estado' },
-  { k: 'estadoCableado', l: 'Estado del cableado', t: 'seg', o: ESTADO_EQUIPO, paso: 3, secc: 'Estado' },
+  { k: 'estadoFisico', l: 'Estado físico', t: 'chips', o: ESTADO_EQUIPO, paso: 3, secc: 'Estado' },
+  { k: 'estadoCableado', l: 'Estado del cableado', t: 'chips', o: ESTADO_EQUIPO, paso: 3, secc: 'Estado' },
   { k: 'ultimoMantenimiento', l: 'Último mantenimiento', t: 'fecha', paso: 3, secc: 'Mantenimiento' },
   { k: 'proximoMantenimiento', l: 'Próximo mantenimiento', t: 'fecha', paso: 3, secc: 'Mantenimiento' },
   { k: 'responsable', l: 'Responsable del mantenimiento', t: 'texto', paso: 3, secc: 'Mantenimiento' },
@@ -928,6 +928,7 @@ const FILTROS = [
   ['novedad', 'Con novedad', function(r) { return igual(r.estado, 'Operativa con novedad') || igual(r.estado, 'Intermitente') || igual(r.estado, 'En mantenimiento'); }],
   ['fuera', 'Fuera de servicio', function(r) { return igual(r.estado, 'Fuera de servicio'); }],
   ['sinmtto', 'Sin revisión inicial', function(r) { return !ultimoMtto(r); }],
+  ['conmtto', 'Con revisión inicial', function(r) { return !!ultimoMtto(r); }],
   ['incompleta', 'Hoja de vida incompleta', function(r) { return avanceHV(datosDe(r)).pct < 100; }],
   ['completa', 'Hoja de vida completa', function(r) { return avanceHV(datosDe(r)).pct === 100; }]
 ];
@@ -935,6 +936,7 @@ const FILTROS = [
 function claseFila(r) {
   if (igual(r.estado, 'Fuera de servicio')) return 'urgente';
   if (igual(r.estado, 'Operativa con novedad') || igual(r.estado, 'Intermitente') || igual(r.estado, 'En mantenimiento')) return 'atender';
+  if (igual(r.estado, 'Operativa') && avanceHV(datosDe(r)).pct === 100) return 'completa';
   return '';
 }
 
@@ -1253,12 +1255,13 @@ function htmlFicha(r) {
     fila('', 'Inventariada por', [d.registradoPor, fecha12(d.fechaRegistro)].filter(String).join(' · '))
   ].join('');
 
+  // Avance en una sola línea (sin tarjeta ni barra)
   const avance =
-    '<div class="tarjeta avance-hv">' +
-      '<div class="linea"><b>Hoja de vida ' + av.pct + ' %</b>' + (av.faltan.length ? '<span class="nota" style="margin:0">' + (CRITERIOS.length - av.faltan.length) + ' de ' + CRITERIOS.length + '</span>' : chipListo()) + '</div>' +
-      '<div class="bar"><i style="width:' + av.pct + '%"></i></div>' +
-      '<p class="ayuda">' + (av.faltan.length ? 'Falta: ' + esc(av.faltan.map(function(c) { return c.l; }).join(', ')) : 'Tiene todos los datos y al menos un mantenimiento.') + '</p>' +
-      (av.completables.length ? '<button type="button" class="btn tono mini" style="margin-top:10px;width:100%" data-accion="completar">' + ico('edit') + 'Completar lo que falta</button>' : '') +
+    '<div class="linea-hv">' +
+      '<span><b>Hoja de vida ' + (CRITERIOS.length - av.faltan.length) + ' de ' + CRITERIOS.length + '</b>' +
+      (av.faltan.length ? ' · Falta: ' + esc(av.faltan.map(function(c) { return c.l; }).join(', ')) : '') + '</span>' +
+      (av.faltan.length ? (av.completables.length ? '<button type="button" class="btn tono mini" data-accion="completar">' + ico('edit') + 'Completar</button>' : '')
+                        : chipListo()) +
     '</div>';
 
   const listaMttos = mttos.length ? mttos.map(htmlMttoFila).join('') :
@@ -2038,10 +2041,10 @@ function pintarResumen() {
 
     '<div><div class="secc" style="margin-bottom:8px"><span>Hojas de vida</span></div>' +
     '<div class="grupo">' +
-      '<div class="avance"><div class="linea"><span>Hojas de vida completas</span><b>' + completas + ' de ' + total + ' (' + pctHV + ' %)</b></div>' +
-        '<div class="bar"><i style="width:' + pctHV + '%"></i></div></div>' +
-      '<div class="avance"><div class="linea"><span>Con revisión inicial o mantenimiento</span><b>' + conMtto + ' de ' + total + ' (' + pct + ' %)</b></div>' +
-        '<div class="bar"><i style="width:' + pct + '%"></i></div></div>' +
+      '<div class="cifras-hv">' +
+        '<button type="button" class="cifra toque ok" data-ir-filtro="completa"><b>' + completas + '<small> de ' + total + '</small></b><span>' + ico('verified', 's') + 'Hojas de vida completas</span><i class="ms ir" aria-hidden="true">chevron_right</i></button>' +
+        '<button type="button" class="cifra toque" data-ir-filtro="conmtto"><b>' + conMtto + '<small> de ' + total + '</small></b><span>' + ico('build', 's') + 'Con revisión inicial</span><i class="ms ir" aria-hidden="true">chevron_right</i></button>' +
+      '</div>' +
       '<div class="dato"><span>Sin ningún mantenimiento</span><span>' + (total - conMtto) + '</span></div>' +
       '<div class="dato"><span>Registros este mes</span><span>' + delMes.length + '</span></div>' +
       '<div class="dato"><span>Fallas este mes</span><span>' + delMes.filter(function(h) { return h.huboFalla; }).length + '</span></div>' +
@@ -2166,6 +2169,16 @@ function enlazarEventos() {
       S.texto = '';
       $('terminoBusqueda').value = '';
       S.filtro = '';
+      S.sel = null;
+      mostrarVista('vBuscar');
+      return;
+    }
+    if (b.dataset.irFiltro) {
+      S.extra = null;
+      S.sede = S.sedeResumen;
+      S.texto = '';
+      $('terminoBusqueda').value = '';
+      S.filtro = b.dataset.irFiltro;
       S.sel = null;
       mostrarVista('vBuscar');
       return;

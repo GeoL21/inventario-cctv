@@ -42,7 +42,7 @@ El registro se hace desde celulares. Al jefe de monitoreo le pidieron la hoja de
 - Registro en cuatro pasos (el paso va bajo el título, sin tarjeta de avance); si falta algo, mensaje
   emergente "Falta: …" con botón Ir al campo. Autocompletar de marca con aviso de serial repetido.
 - Las fotos quedan como chips en la hoja; se revisan en la hoja, no en la app.
-- Estándar visual "Pixel" (Material 3, skill nueva-pwa): vino #84303F, letra Google Sans Flex,
+- Estándar visual "Pixel" (Material 3, skill nueva-pwa): vino #84303F, letra Google Sans Flex (texto normal 560, negritas 660–860),
   íconos Material Symbols Rounded (el service worker los guarda para verlos sin señal),
   ícono propio de la app (círculo rosa con cámara `videocam`), filas por estado
   (blanco normal, ámbar con novedad, rojo que late fuera de servicio), sonidos al guardar.
