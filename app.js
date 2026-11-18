@@ -224,7 +224,6 @@ const CAMPOS = [
   { k: 'marca', l: 'Marca', t: 'texto', ph: 'Hikvision, Dahua', lista: 'listaMarcas', paso: 2, secc: 'La cámara' },
   { k: 'modelo', l: 'Modelo', t: 'texto', paso: 2, secc: 'La cámara' },
   { k: 'serial', l: 'Serial', t: 'texto', paso: 2, secc: 'La cámara', mayus: true },
-  { k: 'referencia', l: 'Referencia / código interno', t: 'texto', paso: 2, secc: 'La cámara' },
   { k: 'visionNocturna', l: 'Visión nocturna', t: 'chips', o: SI_NO, paso: 2, secc: 'Funciones' },
   { k: 'audio', l: 'Audio', t: 'chips', o: SI_NO, paso: 2, secc: 'Funciones' },
   { k: 'ip', l: 'IP', t: 'texto', ph: '192.168.1.45', paso: 2, secc: 'Conexión', teclado: 'decimal' },
@@ -1394,8 +1393,7 @@ function htmlFicha(r) {
     fila('nivel', 'Piso', d.nivel),
     fila('subzona', 'Torre', d.subzona),
     fila('dependencia', 'Servicio', d.dependencia),
-    fila('areaZona', 'Punto exacto', d.areaZona),
-    fila('referencia', 'Referencia', d.referencia)
+    fila('areaZona', 'Punto exacto', d.areaZona)
   ].join('');
 
   const inventario = [
@@ -1668,9 +1666,9 @@ async function construirPdfHV(r) {
     ['Sede', d.sede, 'Edificación', d.edificacion],
     ['Piso', d.nivel, 'Torre', d.subzona],
     ['Servicio', d.dependencia || 'Sin servicio', 'Punto exacto', d.areaZona],
-    ['Referencia', d.referencia, 'Tipo de cámara', d.tipoCamara],
-    ['Marca', d.marca, 'Modelo', d.modelo],
-    ['Serial', d.serial, 'Visión nocturna · Audio', [d.visionNocturna, d.audio].filter(String).join(' · ')],
+    ['Tipo de cámara', d.tipoCamara, 'Marca', d.marca],
+    ['Modelo', d.modelo, 'Serial', d.serial],
+    ['Visión nocturna', d.visionNocturna, 'Audio', d.audio],
     ['IP', d.ip, 'NVR / DVR · Canal', [d.nvr, d.canal].filter(String).join(' · ')],
     ['Estado físico', d.estadoFisico, 'Estado de cableado', d.estadoCableado],
     ['Último mantenimiento', ultimoMtto(d), 'Próximo mantenimiento', fechaCorta(d.proximoMantenimiento)],

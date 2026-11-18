@@ -73,7 +73,6 @@ const CAMPOS = [
   ['dependencia', 'Servicio'],      // antes "Dependencia" (se renombra sola)
   ['tipoUbicacion', 'Tipo de ubicación'],
   ['areaZona', 'Punto exacto'],     // antes "Área / Zona" (se renombra sola)
-  ['referencia', 'Referencia'],
   ['tipoCamara', 'Tipo de cámara'],
   ['marca', 'Marca'],
   ['modelo', 'Modelo'],
@@ -103,7 +102,7 @@ const COLUMNAS_NUEVAS = ['IP', 'NVR / DVR', 'Canal'];
 // Campos de texto (se guardan tal cual)
 const CAMPOS_TEXTO = [
   'sede', 'edificacion', 'nivel', 'subzona', 'dependencia', 'tipoUbicacion',
-  'areaZona', 'referencia', 'tipoCamara', 'marca', 'modelo', 'serial',
+  'areaZona', 'tipoCamara', 'marca', 'modelo', 'serial',
   'visionNocturna', 'audio', 'estado', 'estadoFisico', 'estadoCableado',
   'responsable', 'observaciones', 'ip', 'nvr', 'canal'
 ];
@@ -2253,9 +2252,9 @@ function paginaHojaDeVida_(c, historial, logo, foto, hoy, ultima) {
     fila('Sede', c.sede, 'Edificación', c.edificacion) +
     fila('Piso', c.nivel, 'Torre', c.subzona) +
     fila('Servicio', c.dependencia || 'Sin servicio', 'Punto exacto', c.areaZona) +
-    fila('Referencia', c.referencia, 'Tipo de cámara', c.tipoCamara) +
-    fila('Marca', c.marca, 'Modelo', c.modelo) +
-    fila('Serial', c.serial, 'Visión nocturna · Audio', [c.visionNocturna, c.audio].filter(String).join(' · ')) +
+    fila('Tipo de cámara', c.tipoCamara, 'Marca', c.marca) +
+    fila('Modelo', c.modelo, 'Serial', c.serial) +
+    fila('Visión nocturna', c.visionNocturna, 'Audio', c.audio) +
     fila('IP', c.ip, 'NVR / DVR · Canal', [c.nvr, c.canal].filter(String).join(' · ')) +
     fila('Estado físico', c.estadoFisico, 'Estado de cableado', c.estadoCableado) +
     fila('Último mantenimiento', fechaCorta_(c.ultimoMantenimiento), 'Próximo mantenimiento', fechaCorta_(c.proximoMantenimiento)) +
