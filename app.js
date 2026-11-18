@@ -309,13 +309,38 @@ function limpiarSerial(s) { return String(s || '').toLowerCase().replace(/[^a-z0
 
 let relojToast = null;
 
-function toast(icono, texto, ms) {
+/** Mensaje emergente. accion = { texto, fn } agrega un botón (por ejemplo "Ir"). */
+function toast(icono, texto, ms, accion) {
   const t = $('toast');
-  t.innerHTML = ico(icono) + '<span></span>';
-  t.lastChild.textContent = texto;
+  t.innerHTML = ico(icono) + '<span style="flex:1"></span>' +
+    (accion ? '<button type="button" class="ir">' + esc(accion.texto) + '</button>' : '');
+  t.children[1].textContent = texto;
+  if (accion) {
+    t.querySelector('.ir').onclick = function() {
+      t.classList.add('oculto');
+      accion.fn();
+    };
+  }
   t.classList.remove('oculto');
   clearTimeout(relojToast);
   relojToast = setTimeout(function() { t.classList.add('oculto'); }, ms || 4000);
+}
+
+/** Lleva a un campo marcado, lo centra en pantalla y lo hace parpadear. */
+function irAlCampo(elemento) {
+  if (!elemento) return;
+  elemento.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  elemento.classList.remove('resalta');
+  void elemento.offsetWidth;
+  elemento.classList.add('resalta');
+  const entrada = elemento.querySelector('input, textarea');
+  if (entrada) setTimeout(function() { entrada.focus({ preventScroll: true }); }, 400);
+}
+
+/** Aviso de lo que falta, con el botón "Ir" al primer campo marcado. */
+function avisarFalta(nombres, irA) {
+  sonarFalta();
+  toast('error', 'Falta: ' + nombres.join(', ') + '.', 8000, { texto: 'Ir', fn: irA });
 }
 
 
@@ -528,29 +553,26 @@ function pintarRegistro() {
 
   caja.innerHTML = html + (html2 ? '<div class="bloque">' + html2 + '</div>' : '');
 
-  // Progreso
-  const hechos = PASOS.filter(function(p, i) { return !faltanDelPaso(i + 1).length; }).length;
-  const falta = faltanDelPaso(S.paso);
-
-  $('anilloN').textContent = S.paso + '/' + PASOS.length;
-  $('anilloVa').style.strokeDashoffset = String(150.8 * (1 - hechos / PASOS.length));
-  $('pasoNombre').textContent = 'Paso ' + S.paso + ': ' + PASOS[S.paso - 1];
-  $('pasoFalta').textContent = falta.length
-    ? 'Falta: ' + falta.map(function(c) { return c.l.toLowerCase(); }).join(', ')
-    : (hechos === PASOS.length ? 'Todo listo para guardar.' : 'Este paso está completo.');
-
-  $('pasos').innerHTML = PASOS.map(function(p, i) {
-    const n = i + 1;
-    const clase = n === S.paso ? 'actual' : (!faltanDelPaso(n).length ? 'hecho' : '');
-    return '<button type="button" role="tab" class="' + clase + '" aria-selected="' + (n === S.paso) +
-      '" aria-label="Paso ' + n + ': ' + p + '" data-paso="' + n + '"></button>';
-  }).join('');
+  // El paso va en la línea de abajo del título (sin tarjeta de avance)
+  $('subtitulo').textContent = 'Paso ' + S.paso + ' de ' + PASOS.length + ' · ' + PASOS[S.paso - 1];
 
   pintarAccion();
 }
 
 function guardarBorrador() {
   ls.set('borrador', S.reg);
+}
+
+function siguientePaso() {
+  const falta = faltanDelPaso(S.paso);
+
+  if (!falta.length) { irPaso(S.paso + 1); return; }
+
+  falta.forEach(function(c) { S.errores[c.k] = 'Falta completar: ' + c.l.toLowerCase(); });
+  pintarRegistro();
+  avisarFalta(falta.map(function(c) { return c.l.toLowerCase(); }), function() {
+    irAlCampo($('campo_r_' + falta[0].k));
+  });
 }
 
 function irPaso(n) {
@@ -570,13 +592,14 @@ function validarRegistro() {
 
   if (!faltan.length) return true;
 
-  const primero = CAMPOS.filter(function(c) { return S.errores[c.k]; })[0];
-  irPaso(primero.paso);
-  sonarFalta();
-  toast('error', 'Falta completar ' + faltan.length + (faltan.length === 1 ? ' dato' : ' datos') + '. Están marcados en rojo.');
+  const lista = CAMPOS.filter(function(c) { return S.errores[c.k]; });
+  const primero = lista[0];
 
-  const campo = $('campo_r_' + primero.k);
-  if (campo) campo.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  avisarFalta(lista.map(function(c) { return c.l.toLowerCase(); }), function() {
+    if (S.vista !== 'vRegistrar') mostrarVista('vRegistrar');
+    if (S.paso !== primero.paso) irPaso(primero.paso);
+    setTimeout(function() { irAlCampo($('campo_r_' + primero.k)); }, 80);
+  });
 
   return false;
 }
@@ -1767,10 +1790,10 @@ async function guardarMtto() {
 
   if (Object.keys(m.errores).length) {
     pintarDetalle();
-    sonarFalta();
-    toast('error', 'Falta completar lo marcado en rojo.');
-    const primero = document.querySelector('#detalle .mal');
-    if (primero) primero.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const nombres = { actividades: 'qué se hizo', imagen: 'cómo quedó la imagen', fallaTxt: 'qué falla tenía', dias: 'días fuera de servicio', tecnico: 'técnico' };
+    avisarFalta(Object.keys(m.errores).map(function(k) { return nombres[k] || k; }), function() {
+      irAlCampo(document.querySelector('#detalle .mal'));
+    });
     return;
   }
 
@@ -1868,8 +1891,9 @@ async function guardarEdicion() {
 
   if (Object.keys(e).length) {
     pintarDetalle();
-    sonarFalta();
-    toast('error', 'Falta completar lo marcado en rojo.');
+    avisarFalta(Object.keys(e).map(function(k) { return campoDe(k).l.toLowerCase(); }), function() {
+      irAlCampo(document.querySelector('#detalle .mal'));
+    });
     return;
   }
 
@@ -2089,6 +2113,7 @@ function mostrarVista(id) {
   });
 
   $('titulo').textContent = TITULOS[id];
+  pintarHora();
   document.title = TITULOS[id] + ' · Inventario CCTV';
   window.scrollTo(0, 0);
 
@@ -2151,7 +2176,7 @@ function enlazarEventos() {
 
     switch (b.dataset.accion) {
       case 'atras': irPaso(S.paso - 1); break;
-      case 'siguiente': irPaso(S.paso + 1); break;
+      case 'siguiente': siguientePaso(); break;
       case 'guardarCamara': guardarCamara(); break;
       case 'cerrarCamara': cerrarCamara(); break;
       case 'verFicha': S.modo = 'ficha'; pintarDetalle(); window.scrollTo(0, 0); break;
@@ -2239,12 +2264,6 @@ function actualizarProgreso() {
     const completa = obligatorios.every(function(c) { return !vacio(S.reg[c.k]); });
     if (completa !== !!span.firstChild) span.innerHTML = completa ? chipListo() : '';
   });
-  const falta = faltanDelPaso(S.paso);
-  const hechos = PASOS.filter(function(p, i) { return !faltanDelPaso(i + 1).length; }).length;
-  $('anilloVa').style.strokeDashoffset = String(150.8 * (1 - hechos / PASOS.length));
-  $('pasoFalta').textContent = falta.length
-    ? 'Falta: ' + falta.map(function(c) { return c.l.toLowerCase(); }).join(', ')
-    : (hechos === PASOS.length ? 'Todo listo para guardar.' : 'Este paso está completo.');
 }
 
 async function actualizarResumen() {
@@ -2328,6 +2347,7 @@ function pintarHora() {
   const dias = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
   const meses = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
   $('hora').textContent = hora12(f.getHours(), f.getMinutes());
+  if (S.vista === 'vRegistrar') return;
   $('subtitulo').textContent = 'Clínica Reina Catalina · ' + dias[f.getDay()] + ' ' + f.getDate() + ' ' + meses[f.getMonth()];
 }
 

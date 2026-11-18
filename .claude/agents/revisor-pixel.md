@@ -19,6 +19,9 @@ Revisa:
 - **Letra** Google Sans Flex: texto normal 500, nunca 400. Título de pantalla 34 px / 800.
 - **Íconos** Material Symbols Rounded; relleno en el elemento activo.
 - **Grupos de tarjetas**: 3 px de separación, esquinas 28 px en los extremos y 6 px en medio.
+- **Sin tarjetas de avance ni anillos de progreso** (ocupan pantalla y obligan a hacer scroll). El paso actual va en
+  la línea bajo el título ("Paso 2 de 4 · Cámara"). Si falta algo al seguir o guardar: mensaje emergente
+  "Falta: …" con botón **Ir** que lleva al primer campo, lo centra y lo hace parpadear en rojo.
 - **Acción principal**: pastilla de 56 px, ancho completo, fija encima de la barra de navegación.
   Los botones secundarios deben verse como botones (no confundirse con el fondo rosado).
 - **Navegación**: barra inferior `#F7E3E6` con pastilla 64×32 `#FFCCD4` en el activo; riel lateral en PC.

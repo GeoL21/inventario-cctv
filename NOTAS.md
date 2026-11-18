@@ -39,7 +39,8 @@ El registro se hace desde celulares. Al jefe de monitoreo le pidieron la hoja de
 - Funciona sin señal: registrar cámaras, buscar, ver la ficha y registrar mantenimientos.
   Editar los datos de una cámara necesita señal.
 - Código de acceso para entrar (clave `cctv_codigo` en el celular, la misma de siempre).
-- Registro en cuatro pasos; autocompletar de marca con aviso de serial repetido.
+- Registro en cuatro pasos (el paso va bajo el título, sin tarjeta de avance); si falta algo, mensaje
+  emergente "Falta: …" con botón Ir al campo. Autocompletar de marca con aviso de serial repetido.
 - Las fotos quedan como chips en la hoja; se revisan en la hoja, no en la app.
 - Estándar visual "Pixel" (Material 3, skill nueva-pwa): vino #84303F, letra Google Sans Flex,
   íconos Material Symbols Rounded (el service worker los guarda para verlos sin señal),
