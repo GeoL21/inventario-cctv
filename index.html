@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#FFF7F6">
+<meta name="theme-color" content="#FFFBFA">
 <meta name="description" content="Inventario y hoja de vida de las cámaras de seguridad de Clínica Reina Catalina. Funciona sin señal.">
 <title>Inventario CCTV</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -296,6 +296,36 @@ button.barra-fila{width:100%;text-align:left}
   #vResumen{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 24px;align-items:start}
   #vResumen>.ancho{grid-column:1/-1}
 }
+
+/* ---------- PixelUI: copia fiel de Mornye (18 nov 2026) ----------
+   Superficies neutras y el rosa solo en lo activo. Mismos pasos, hoja de vida, estados y funciones. */
+:root{--fondo:#FFFBFA;--tarjeta:#F5EEEF;--tarjeta2:#EEE6E7;--barra:#F3ECED}
+body{background:var(--fondo)}
+/* Encabezado: logo a la izquierda, íconos sin fondo a la derecha (sin botón de volver) */
+.cab .logo{width:40px;height:40px}
+.cab .btn-red,.cab .btn-red.rosa{background:none!important;color:var(--tinta,#160D0E)}
+.cab .btn-red:active{background:var(--tarjeta2)!important}
+.cab h1{margin-top:36px}
+/* Títulos de sección y de piso negros */
+.secc{font-size:20px;line-height:28px;font-weight:660;color:#160D0E}
+.cab-piso,.cab-piso b{background:none!important;color:#160D0E!important;font-size:20px;line-height:28px;font-weight:660}
+.cab-piso small{color:#45343A!important;font-weight:560}
+/* Sede y filtros como fichas: la activa en rosa suave */
+.seg{background:transparent}
+.seg button{border:1px solid #D3B8BC;background:transparent;border-radius:12px}
+.seg button[aria-pressed="true"]{background:#FFCCD4!important;border-color:#FFCCD4;color:#33030F!important}
+.chip{border-radius:12px}
+.chip.activo{background:#FFCCD4!important;border-color:#FFCCD4!important;color:#33030F!important}
+/* Filas en grupo, neutras (ámbar, rojo y verde se conservan) */
+.fila,.mtto{background:var(--tarjeta);box-shadow:none;border:0}
+.buscador,.entrada{background:var(--tarjeta2);border-color:transparent}
+.buscador input,#terminoBusqueda{background:transparent}
+.buscador:has(#terminoBusqueda),label:has(>#terminoBusqueda){background:var(--tarjeta2)!important;border:0!important;box-shadow:none!important}
+.foto-btn,.btn.tono,.mtto .ico{background:var(--tarjeta2);color:#160D0E}
+.nav{background:var(--barra)}
+.fila{border-radius:24px}
+.fila+.fila{border-top-left-radius:6px;border-top-right-radius:6px}
+.fila:has(+.fila){border-bottom-left-radius:6px;border-bottom-right-radius:6px}
 </style>
 </head>
 <body>
@@ -323,11 +353,11 @@ button.barra-fila{width:100%;text-align:left}
 
   <header class="cab">
     <div class="cab-fila">
-      <div class="cab-izq">
-        <a class="btn-red" href="https://geol21.github.io/" aria-label="Volver a las apps de la clínica"><span class="ms">arrow_back</span></a>
-        <button id="btnInstalar" class="btn-red rosa oculto" type="button" aria-label="Instalar la app"><span class="ms">download</span></button>
-      </div>
       <img class="logo" src="logo-crc.jpg" alt="Clínica Reina Catalina">
+      <div class="cab-izq">
+        <button id="btnInstalar" class="btn-red rosa oculto" type="button" aria-label="Instalar la app"><span class="ms">download</span></button>
+        <a class="btn-red" href="https://geol21.github.io/" aria-label="Abrir el portal de apps"><span class="ms">apps</span></a>
+      </div>
     </div>
     <h1 id="titulo">Registrar cámara</h1>
     <div class="cab-sub">

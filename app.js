@@ -423,7 +423,9 @@ function fechaHora(ms) {
 /** "17/11/2026 16:49" del servidor → "17/11/2026 4:49 p. m." */
 function fecha12(texto) {
   const m = String(texto || '').match(/^(\d{2}\/\d{2}\/\d{4})\s+(\d{1,2}):(\d{2})/);
-  return m ? m[1] + ' ' + hora12(Number(m[2]), Number(m[3])) : String(texto || '');
+  if (m) return m[1] + ' ' + hora12(Number(m[2]), Number(m[3]));
+  const iso = String(texto || '').match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{2})/);
+  return iso ? iso[3] + '/' + iso[2] + '/' + iso[1] + ' ' + hora12(Number(iso[4]), Number(iso[5])) : String(texto || '');
 }
 
 /** "2026-11-17" → "17/11/2026" */

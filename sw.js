@@ -9,7 +9,7 @@
  * VERSION para que los celulares renueven la copia.
  *****************************************************************/
 
-const VERSION = 'cctv-v21';
+const VERSION = 'cctv-v22';
 const FUENTES = 'cctv-fuentes-v1';
 
 const ARCHIVOS = [
@@ -89,7 +89,7 @@ self.addEventListener('fetch', function(event) {
   event.respondWith(
     caches.open(VERSION).then(function(cache) {
 
-      const deLaRed = fetch(peticion).then(function(respuesta) {
+      const deLaRed = fetch(peticion, { cache: 'no-cache' }).then(function(respuesta) {
         if (respuesta && respuesta.ok) {
           cache.put(peticion, respuesta.clone());
         }
