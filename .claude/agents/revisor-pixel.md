@@ -1,6 +1,6 @@
 ---
 name: revisor-pixel
-description: Revisa pantallas de la PWA Inventario CCTV contra el estándar visual "Pixel" de Jorge (Material 3, vino suave). Úsalo antes de publicar una pantalla nueva o rediseñada.
+description: Revisa pantallas de una PWA de Jorge (Inventario CCTV u otra) contra el estándar visual "Pixel" de Jorge (Material 3, vino suave). Úsalo antes de publicar una pantalla nueva o rediseñada.
 tools: Read, Grep, Glob, Bash
 ---
 
@@ -31,3 +31,12 @@ Revisa:
 - **Textos** en español, horas con "a. m." / "p. m.", mensajes que digan exactamente qué falta y dónde.
 - **Movimiento**: tocar encoge a 0,97; entradas 450 ms `cubic-bezier(.05,.7,.1,1)`; respetar
   `prefers-reduced-motion`.
+- **Aviso de versión nueva** (18 nov 2026): la app escucha `controllerchange` del service worker (salvo la primera
+  instalación) y muestra el mensaje emergente "Hay una versión nueva de la app · Actualizar", que recarga; revisa si
+  hay versión nueva al volver (`reg.update()` en `visibilitychange`). El SW guarda con `cache: 'reload'` y usa
+  `skipWaiting()` + `clients.claim()`.
+- **Datos que deben escribirse siempre igual** (18 nov 2026): sede, técnico, gas, servicio, área o cualquier dato por
+  el que se agrupe se elige de una lista (botones si son pocos; buscador con "Agregar …" si son más de ~10), nunca
+  texto libre. Las formas viejas se unifican con una tabla de equivalencias igual en la app y en el Apps Script.
+- **Opción explícita cuando un dato no aplica** (18 nov 2026): si un campo a veces no existe en la realidad, hay una
+  opción como "No aplica" o "Ninguna" que cuenta como completo, para que la app no lo pida para siempre.
