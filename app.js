@@ -37,6 +37,8 @@ const LISTA_UBICACIONES = ['Pasillo', 'Habitación', 'Acceso', 'Escalera', 'Asce
   'Área administrativa', 'Área asistencial', 'Área externa', 'Cuarto técnico', 'Cocina', 'Lavandería', 'Otro'];
 const SI_NO = ['Sí', 'No', 'No verificado'];
 const ESTADO_EQUIPO = ['Bueno', 'Regular', 'Malo', 'No verificado'];
+// Cableado: "No visible" = va dentro del cielo raso y no se ve sin desmontar la cámara (cuenta como completo).
+const ESTADO_CABLEADO = ['Bueno', 'Regular', 'Malo', 'No visible', 'No verificado'];
 
 const MARCAS_BASE = ['Hikvision', 'HiLook', 'Dahua', 'Epcom', 'Q-See'];
 
@@ -236,7 +238,7 @@ const CAMPOS = [
 
   { k: 'estado', l: 'Estado operativo', t: 'chips', o: LISTA_ESTADOS, req: true, paso: 3, secc: 'Estado' },
   { k: 'estadoFisico', l: 'Estado físico', t: 'chips', o: ESTADO_EQUIPO, paso: 3, secc: 'Estado' },
-  { k: 'estadoCableado', l: 'Estado del cableado', t: 'chips', o: ESTADO_EQUIPO, paso: 3, secc: 'Estado' },
+  { k: 'estadoCableado', l: 'Estado del cableado', t: 'chips', o: ESTADO_CABLEADO, paso: 3, secc: 'Estado' },
   { k: 'ultimoMantenimiento', l: 'Último mantenimiento', t: 'fecha', paso: 3, secc: 'Mantenimiento' },
   { k: 'proximoMantenimiento', l: 'Próximo mantenimiento', t: 'fecha', paso: 3, secc: 'Mantenimiento' },
   { k: 'responsable', l: 'Responsable del mantenimiento', t: 'texto', paso: 3, secc: 'Mantenimiento' },
@@ -1085,7 +1087,8 @@ const FILTROS = [
   ['incompleta', 'Hoja de vida incompleta', function(r) { return avanceHV(datosDe(r)).pct < 100; }],
   ['completa', 'Hoja de vida completa', function(r) { return avanceHV(datosDe(r)).pct === 100; }],
   ['sintorre', 'Sin torre', function(r) { return faltaTorre(datosDe(r)); }],
-  ['sinservicio', 'Sin servicio', function(r) { return vacio(datosDe(r).dependencia); }]
+  ['sinservicio', 'Sin servicio', function(r) { return vacio(datosDe(r).dependencia); }],
+  ['cablenovisible', 'Cableado no visible', function(r) { return igual(datosDe(r).estadoCableado, 'No visible'); }]
 ];
 
 function claseFila(r) {
@@ -1480,7 +1483,8 @@ function htmlCompletar(r) {
     // Opciones que dependen de la ubicación (torre, piso): se calculan con los datos de la cámara
     if (typeof c.o === 'function') c.o = c.o(datosDe(r));
     // En el cableado y el estado físico no se ofrece "No verificado"
-    if (k === 'estadoFisico' || k === 'estadoCableado') c.o = ['Bueno', 'Regular', 'Malo'];
+    if (k === 'estadoFisico') c.o = ['Bueno', 'Regular', 'Malo'];
+    if (k === 'estadoCableado') c.o = ['Bueno', 'Regular', 'Malo', 'No visible'];
     return c;
   });
 
