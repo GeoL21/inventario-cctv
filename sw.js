@@ -9,7 +9,7 @@
  * VERSION para que los celulares renueven la copia.
  *****************************************************************/
 
-const VERSION = 'cctv-v26';
+const VERSION = 'cctv-v27';
 const FUENTES = 'cctv-fuentes-v1';
 
 const ARCHIVOS = [
@@ -19,6 +19,7 @@ const ARCHIVOS = [
   'config.js',
   'manifest.webmanifest',
   'logo-crc.jpg',
+  'logo-pdf.png',
   'icon-192.png',
   'icon-512.png',
   'icon-maskable-512.png',

@@ -1591,6 +1591,37 @@ async function logoPdf() {
   return logoCache;
 }
 
+let logoRedondoCache = null;
+/** Logo redondo (con su círculo blanco) para la franja vino del encabezado del PDF. */
+async function logoRedondoPdf() {
+  if (logoRedondoCache) return logoRedondoCache;
+  try {
+    const blob = await (await fetch('logo-pdf.png')).blob();
+    logoRedondoCache = await new Promise(function(ok, mal) {
+      const l = new FileReader();
+      l.onload = function() { ok(l.result); };
+      l.onerror = mal;
+      l.readAsDataURL(blob);
+    });
+  } catch (e) {
+    logoRedondoCache = null;
+  }
+  return logoRedondoCache;
+}
+
+function tamImagenPdf(src) {
+  return new Promise(function(ok) {
+    const im = new Image();
+    im.onload = function() { ok({ w: im.naturalWidth || im.width, h: im.naturalHeight || im.height }); };
+    im.onerror = function() { ok({ w: 4, h: 3 }); };
+    im.src = src;
+  });
+}
+
+/**
+ * Hoja de vida en PDF con el mismo estilo de las hojas de vida de gases medicinales:
+ * franja vino con logo, secciones con borde y título vino, datos en cuadrícula y tablas con líneas.
+ */
 async function construirPdfHV(r) {
   await cargarLibreriasPdf();
 
@@ -1599,188 +1630,192 @@ async function construirPdfHV(r) {
   const fallas = mttos.filter(function(m) { return m.huboFalla; });
   const av = avanceHV(d);
 
-  const doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'letter', orientation: 'portrait', compress: true });
-  const W = doc.internal.pageSize.getWidth();
-  const H = doc.internal.pageSize.getHeight();
-  const M = 14;
-  const VINO = [132, 48, 63];
-  const SUAVE = [69, 52, 58];
-  const ROSA = [247, 227, 230];
-  const ROSA2 = [255, 204, 212];
-  const LINEA = [211, 184, 188];
+  const jsPDF = window.jspdf.jsPDF;
+  const doc = new jsPDF({ unit: 'mm', format: 'letter', orientation: 'portrait', compress: true });
+  const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 12;
+  const VINO = [132, 48, 63], TINTA = [34, 34, 34], SUAVE = [110, 110, 110], BORDE = [196, 176, 182], LINEAS = [218, 206, 210];
+  const ARRIBA = 40, ABAJO = H - 14, TIT = 9;
   const hoy = new Date();
   const fechaHoy = dos(hoy.getDate()) + '/' + dos(hoy.getMonth() + 1) + '/' + hoy.getFullYear();
+  const color = function(c, tipo) { if (tipo === 'f') doc.setFillColor(c[0], c[1], c[2]); else if (tipo === 'd') doc.setDrawColor(c[0], c[1], c[2]); else doc.setTextColor(c[0], c[1], c[2]); };
+  const letra = function(tam, negrita) { doc.setFont('helvetica', negrita ? 'bold' : 'normal'); doc.setFontSize(tam); };
+  const val = function(v) { return vacio(v) ? '—' : String(v).trim(); };
+  const nueva = function() { doc.addPage(); return ARRIBA; };
+  const ESTADOS = { 'Operativa': [30, 107, 58], 'Fuera de servicio': [179, 38, 30] };
 
-  // Encabezado
-  const logo = await logoPdf();
-  if (logo) doc.addImage(logo, 'JPEG', M, 10, 16, 16);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(15);
-  doc.setTextColor(VINO[0], VINO[1], VINO[2]);
-  doc.text('Hoja de vida — Cámara CCTV', M + 20, 17);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.setTextColor(SUAVE[0], SUAVE[1], SUAVE[2]);
-  doc.text('Clínica Reina Catalina · Departamento de seguridad', M + 20, 22.5);
-  doc.setDrawColor(LINEA[0], LINEA[1], LINEA[2]);
-  doc.rect(W - M - 46, 10, 46, 16);
-  doc.setFontSize(8);
-  doc.text(['Código: ________', 'Versión: ____', 'Fecha: ' + fechaHoy], W - M - 2, 14, { align: 'right' });
-  doc.setDrawColor(VINO[0], VINO[1], VINO[2]);
-  doc.setLineWidth(0.8);
-  doc.line(M, 29, W - M, 29);
+  function franja(n, t, x, y, ancho) {
+    color(VINO, 'f'); doc.roundedRect(x, y, ancho, TIT, 2.5, 2.5, 'F'); doc.rect(x, y + TIT - 3, ancho, 3, 'F');
+    letra(9.5, true); doc.setTextColor(240, 205, 212); doc.text(String(n), x + 4, y + 6.1);
+    doc.setTextColor(255, 255, 255); doc.text(t.toUpperCase(), x + 8.5, y + 6.1, { charSpace: 0.25 });
+  }
+  // Recuadro con franja de título y datos en cuadrícula
+  function bloque(n, t, items, cols, x, y, ancho, minAlto) {
+    const cw = ancho / cols, filas = [];
+    for (let i = 0; i < items.length; i += cols) {
+      let alto = 0;
+      items.slice(i, i + cols).forEach(function(it) {
+        letra(10, true);
+        it.lineas = doc.splitTextToSize(val(it.v), cw - 7);
+        alto = Math.max(alto, 4 + it.lineas.length * 4.2);
+      });
+      filas.push(alto + 3);
+    }
+    let alto = TIT + filas.reduce(function(a, b) { return a + b; }, 0);
+    if (minAlto && alto < minAlto) { const extra = (minAlto - alto) / filas.length; for (let i = 0; i < filas.length; i++) filas[i] += extra; alto = minAlto; }
+    color([255, 255, 255], 'f'); doc.roundedRect(x, y, ancho, alto, 2.5, 2.5, 'F');
+    franja(n, t, x, y, ancho);
+    color(LINEAS, 'd'); doc.setLineWidth(0.2);
+    let yy = y + TIT;
+    filas.forEach(function(f, k) {
+      if (k < filas.length - 1) doc.line(x, yy + f, x + ancho, yy + f);
+      for (let c = 1; c < cols; c++) doc.line(x + c * cw, yy, x + c * cw, yy + f);
+      yy += f;
+    });
+    yy = y + TIT;
+    items.forEach(function(it, i) {
+      const col = i % cols;
+      if (col === 0 && i > 0) yy += filas[Math.floor(i / cols) - 1];
+      const xx = x + col * cw + 4;
+      letra(7, true); color(VINO); doc.text(it.e.toUpperCase(), xx, yy + 3.9, { charSpace: 0.12 });
+      letra(10, true);
+      if (it.estado && ESTADOS[it.v]) color(ESTADOS[it.v]); else if (it.estado && !vacio(it.v)) doc.setTextColor(122, 74, 0); else doc.setTextColor(0, 0, 0);
+      doc.text(it.lineas, xx, yy + 8);
+    });
+    color(BORDE, 'd'); doc.setLineWidth(0.3); doc.roundedRect(x, y, ancho, alto, 2.5, 2.5, 'S');
+    return alto;
+  }
+  function bloqueEnPagina(n, t, items, cols, y) {
+    if (y + TIT + 12 * Math.ceil(items.length / cols) > ABAJO) y = nueva();
+    return y + bloque(n, t, items, cols, M, y, W - 2 * M) + 4;
+  }
+  // Tabla con franja de título y borde exterior
+  function tabla(n, t, head, body, columnStyles, y) {
+    if (y + TIT + 24 > ABAJO) y = nueva();
+    const yIni = y, pag = doc.getNumberOfPages();
+    franja(n, t, M, y, W - 2 * M);
+    doc.autoTable({
+      startY: y + TIT, margin: { left: M, right: M, top: ARRIBA, bottom: 16 }, theme: 'grid',
+      styles: { font: 'helvetica', fontSize: 8.8, textColor: TINTA, lineColor: LINEAS, lineWidth: 0.2, cellPadding: { top: 1.8, bottom: 1.8, left: 2.5, right: 2.5 }, valign: 'top', fillColor: [255, 255, 255], minCellHeight: 7 },
+      head: [head], headStyles: { fillColor: [250, 246, 247], textColor: [74, 52, 58], fontStyle: 'bold', fontSize: 7.4 },
+      body: body, columnStyles: columnStyles
+    });
+    color(BORDE, 'd'); doc.setLineWidth(0.3);
+    if (doc.getNumberOfPages() === pag) doc.roundedRect(M, yIni, W - 2 * M, doc.lastAutoTable.finalY - yIni, 2.5, 2.5, 'S');
+    return doc.lastAutoTable.finalY + 4;
+  }
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
-  doc.setTextColor(22, 13, 14);
-  doc.text(r.id, M, 36);
-  doc.setFontSize(9);
-  doc.text((d.estado || 'Sin estado') + '  ·  Hoja de vida ' + av.pct + ' %', W - M, 36, { align: 'right' });
-
-  let y = 40;
-
+  let y = ARRIBA;
+  // Novedad (franja ámbar o roja) como antes
   if (tieneNovedad(d)) {
-    const texto = doc.splitTextToSize('Novedad: ' + (vacio(d.observaciones) ? 'sin describir' : d.observaciones), W - 2 * M - 6);
+    letra(9, true);
+    const texto = doc.splitTextToSize('Novedad: ' + (vacio(d.observaciones) ? 'sin describir' : d.observaciones), W - 2 * M - 8);
     const alto = 4 + texto.length * 4;
     const grave = igual(d.estado, 'Fuera de servicio');
     if (grave) doc.setFillColor(252, 228, 225); else doc.setFillColor(255, 243, 220);
-    doc.rect(M, y - 1, W - 2 * M, alto, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
+    doc.roundedRect(M, y, W - 2 * M, alto, 2.5, 2.5, 'F');
     if (grave) doc.setTextColor(179, 38, 30); else doc.setTextColor(122, 74, 0);
-    doc.text(texto, M + 3, y + 3);
-    y += alto + 2;
+    doc.text(texto, M + 4, y + 5);
+    y += alto + 4;
   }
 
-  let foto = await fotoDeCamara(r.id);
-  if (!foto) foto = null;
-
-  function seccion(titulo) {
-    if (y > H - 40) { doc.addPage(); y = 16; }
-    doc.setFillColor(VINO[0], VINO[1], VINO[2]);
-    doc.rect(M, y, W - 2 * M, 6.5, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.5);
-    doc.setTextColor(255, 255, 255);
-    doc.text(titulo, M + 2.5, y + 4.5);
-    y += 7.5;
-  }
-
-  function val(v) { return vacio(v) ? '—' : String(v); }
-
-  const base = {
-    theme: 'grid',
-    margin: { left: M, right: M },
-    styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 1.6, lineColor: LINEA, lineWidth: 0.2, textColor: [22, 13, 14] },
-    headStyles: { fillColor: ROSA2, textColor: [51, 3, 15], fontStyle: 'bold' }
-  };
-
-  seccion('Datos técnicos');
-  const pares = [
-    ['Sede', d.sede, 'Edificación', d.edificacion],
-    ['Piso', d.nivel, 'Torre', d.subzona],
-    ['Servicio', d.dependencia || 'Sin servicio', 'Punto exacto', d.areaZona],
-    ['Tipo de cámara', d.tipoCamara, 'Marca', d.marca],
-    ['Modelo', d.modelo, 'Serial', d.serial],
-    ['Visión nocturna', d.visionNocturna, 'Audio', d.audio],
-    ['IP', d.ip, 'NVR / DVR · Canal', [d.nvr, d.canal].filter(String).join(' · ')],
-    ['Estado físico', d.estadoFisico, 'Estado de cableado', d.estadoCableado],
-    ['Último mantenimiento', ultimoMtto(d), 'Próximo mantenimiento', fechaCorta(d.proximoMantenimiento)],
-    ['Responsable', d.responsable, 'Inventariada por', [d.registradoPor, fecha12(d.fechaRegistro)].filter(String).join(' · ')]
-  ];
-
-  // Con foto: la tabla deja a la derecha un espacio para ella
-  const ANCHO_FOTO = 48;
-  const yTabla = y;
-
-  doc.autoTable(Object.assign({}, base, {
-    startY: y,
-    margin: { left: M, right: foto ? M + ANCHO_FOTO + 3 : M },
-    body: pares.map(function(p) { return [p[0], val(p[1]), p[2], val(p[3])]; }),
-    columnStyles: {
-      0: { fillColor: ROSA, fontStyle: 'bold', textColor: SUAVE, cellWidth: foto ? 26 : 34 },
-      2: { fillColor: ROSA, fontStyle: 'bold', textColor: SUAVE, cellWidth: foto ? 26 : 34 }
-    }
-  }));
-  y = doc.lastAutoTable.finalY + 2;
-
+  // 1. Foto + identificación y ubicación
+  const foto = await fotoDeCamara(r.id);
+  const fw = 60, xi = M + fw + 4, ai = W - M - xi;
+  const altoId = bloque(1, 'Identificación y ubicación', [
+    { e: 'Sede', v: d.sede }, { e: 'Edificación', v: d.edificacion }, { e: 'Piso', v: d.nivel },
+    { e: 'Torre', v: d.subzona }, { e: 'Servicio', v: d.dependencia || 'Sin servicio' }, { e: 'Punto exacto', v: d.areaZona },
+    { e: 'Tipo de cámara', v: d.tipoCamara }, { e: 'Estado', v: d.estado || 'Sin estado', estado: true }, { e: 'Hoja de vida', v: av.pct + ' %' }
+  ], 3, xi, y, ai, 46);
   if (foto) {
     try {
-      const dim = await new Promise(function(ok, mal) {
-        const im = new Image();
-        im.onload = function() { ok({ w: im.width, h: im.height }); };
-        im.onerror = mal;
-        im.src = foto;
-      });
-      const caja = Math.min(ANCHO_FOTO, y - yTabla - 2);
-      const esc2 = Math.min(ANCHO_FOTO / dim.w, caja / dim.h);
-      const w = dim.w * esc2;
-      const h = dim.h * esc2;
-      const x = W - M - ANCHO_FOTO + (ANCHO_FOTO - w) / 2;
-      doc.setDrawColor(LINEA[0], LINEA[1], LINEA[2]);
-      doc.rect(W - M - ANCHO_FOTO, yTabla, ANCHO_FOTO, caja);
-      doc.addImage(foto, /png/.test(foto.slice(0, 30)) ? 'PNG' : 'JPEG', x, yTabla + (caja - h) / 2, w, h);
+      const t = await tamImagenPdf(foto);
+      const s = Math.max(fw / t.w, altoId / t.h), iw = t.w * s, ih = t.h * s;
+      doc.saveGraphicsState();
+      doc.roundedRect(M, y, fw, altoId, 2.5, 2.5, null); doc.clip(); doc.discardPath();
+      doc.addImage(foto, /png/.test(foto.slice(0, 30)) ? 'PNG' : 'JPEG', M + (fw - iw) / 2, y + (altoId - ih) / 2, iw, ih);
+      doc.restoreGraphicsState();
     } catch (e) {
       console.error('Foto en el PDF', e);
     }
+  } else {
+    doc.setFillColor(247, 244, 245); doc.roundedRect(M, y, fw, altoId, 2.5, 2.5, 'F');
+    letra(9, false); color(SUAVE); doc.text('Sin foto de la cámara', M + fw / 2, y + altoId / 2, { align: 'center' });
+  }
+  y += altoId + 4;
+
+  // 2. Datos técnicos
+  y = bloqueEnPagina(2, 'Datos técnicos', [
+    { e: 'Marca', v: d.marca }, { e: 'Modelo', v: d.modelo }, { e: 'Serial', v: d.serial }, { e: 'Visión nocturna', v: d.visionNocturna },
+    { e: 'Audio', v: d.audio }, { e: 'IP', v: d.ip }, { e: 'NVR / DVR', v: d.nvr }, { e: 'Canal', v: d.canal }
+  ], 4, y);
+
+  // 3. Estado y mantenimiento
+  y = bloqueEnPagina(3, 'Estado y mantenimiento', [
+    { e: 'Estado físico', v: d.estadoFisico }, { e: 'Cableado', v: d.estadoCableado }, { e: 'Responsable', v: d.responsable },
+    { e: 'Último mantenimiento', v: ultimoMtto(d) }, { e: 'Próximo mantenimiento', v: fechaCorta(d.proximoMantenimiento) },
+    { e: 'Inventariada por', v: [d.registradoPor, fecha12(d.fechaRegistro)].filter(String).join(' · ') }
+  ], 3, y);
+  if (!vacio(d.observaciones) && !tieneNovedad(d)) {
+    letra(8.8, false); const lineas = doc.splitTextToSize(d.observaciones, W - 2 * M - 34);
+    if (y + lineas.length * 4 + 6 > ABAJO) y = nueva();
+    letra(8.8, true); color(TINTA); doc.text('Observaciones:', M + 1, y + 3);
+    letra(8.8, false); doc.text(lineas, M + 27, y + 3);
+    y += lineas.length * 4 + 4;
   }
 
-  if (!vacio(d.observaciones)) {
-    doc.autoTable(Object.assign({}, base, {
-      startY: y,
-      body: [['Observaciones', d.observaciones]],
-      columnStyles: { 0: { fillColor: ROSA, fontStyle: 'bold', textColor: SUAVE, cellWidth: 34 } }
-    }));
-    y = doc.lastAutoTable.finalY + 2;
-  }
-
-  y += 3;
-  seccion('Mantenimientos');
+  // 4. Mantenimientos (con filas en blanco para llenar a mano)
   const filasM = mttos.map(function(m) {
     return [m.fecha.split(' ')[0], m.tipo, [m.actividades, m.observaciones].filter(function(x) { return !vacio(x); }).join(' · '),
       m.estadoImagen || '', m.tecnico || ''];
   });
   const totalM = filasM.length ? filasM.length + 2 : 5;
   while (filasM.length < totalM) filasM.push(['', '', '', '', '']);
-  doc.autoTable(Object.assign({}, base, {
-    startY: y,
-    head: [['Fecha', 'Tipo', 'Actividades', 'Imagen', 'Técnico']],
-    body: filasM,
-    columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 28 }, 3: { cellWidth: 20 }, 4: { cellWidth: 32 } },
-    bodyStyles: { minCellHeight: 6 }
-  }));
-  y = doc.lastAutoTable.finalY + 5;
+  y = tabla(4, 'Mantenimientos', ['FECHA', 'TIPO', 'ACTIVIDADES', 'IMAGEN', 'TÉCNICO'], filasM,
+    { 0: { cellWidth: 22 }, 1: { cellWidth: 26 }, 3: { cellWidth: 20 }, 4: { cellWidth: 34 } }, y);
 
-  seccion('Fallas y reparaciones');
+  // 5. Fallas y reparaciones
   const filasF = fallas.map(function(m) {
     return [m.fecha.split(' ')[0], m.falla || '', m.repuesto || '', m.diasFuera === undefined ? '' : String(m.diasFuera), m.tecnico || ''];
   });
   const totalF = filasF.length ? filasF.length + 1 : 3;
   while (filasF.length < totalF) filasF.push(['', '', '', '', '']);
-  doc.autoTable(Object.assign({}, base, {
-    startY: y,
-    head: [['Fecha', 'Falla', 'Repuesto', 'Días fuera', 'Técnico']],
-    body: filasF,
-    columnStyles: { 0: { cellWidth: 22 }, 2: { cellWidth: 36 }, 3: { cellWidth: 20 }, 4: { cellWidth: 32 } },
-    bodyStyles: { minCellHeight: 6 }
-  }));
-  y = doc.lastAutoTable.finalY + 22;
+  y = tabla(5, 'Fallas y reparaciones', ['FECHA', 'FALLA', 'REPUESTO', 'DÍAS FUERA', 'TÉCNICO'], filasF,
+    { 0: { cellWidth: 22 }, 2: { cellWidth: 36 }, 3: { cellWidth: 20 }, 4: { cellWidth: 34 } }, y);
 
-  if (y > H - 20) { doc.addPage(); y = 40; }
-  doc.setDrawColor(SUAVE[0], SUAVE[1], SUAVE[2]);
-  doc.setLineWidth(0.3);
-  const ancho = (W - 2 * M - 20) / 2;
-  doc.line(M, y, M + ancho, y);
-  doc.line(W - M - ancho, y, W - M, y);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.setTextColor(SUAVE[0], SUAVE[1], SUAVE[2]);
-  doc.text('Elaboró', M + ancho / 2, y + 4, { align: 'center' });
-  doc.text('Revisó · Jefe de monitoreo', W - M - ancho / 2, y + 4, { align: 'center' });
+  // Firmas Elaboró / Revisó
+  y += 1;
+  if (y + 22 > H - 9) y = nueva();
+  const anchoF = (W - 2 * M - 10) / 2;
+  [['Elaboró', 'Técnico'], ['Revisó', 'Jefe de monitoreo']].forEach(function(f, i) {
+    const x = M + i * (anchoF + 10);
+    doc.setDrawColor(227, 215, 218); doc.setLineWidth(0.3); doc.roundedRect(x, y, anchoF, 22, 2.5, 2.5, 'S');
+    letra(7.5, true); doc.setTextColor(74, 52, 58); doc.text(f[0].toUpperCase(), x + 4, y + 5.5, { charSpace: 0.2 });
+    doc.setDrawColor(85, 85, 85); doc.setLineWidth(0.25); doc.line(x + 8, y + 14, x + anchoF - 8, y + 14);
+    letra(8, false); color(SUAVE); doc.text(f[1], x + anchoF / 2, y + 18.5, { align: 'center' });
+  });
 
-  doc.setFontSize(7.5);
-  doc.setTextColor(133, 115, 116);
-  doc.text('Generado desde el Inventario CCTV el ' + fechaHoy + ' ' + hora12(hoy.getHours(), hoy.getMinutes()), W - M, H - 8, { align: 'right' });
+  // Encabezado en todas las páginas: franja vino con logo, título y código / versión (en blanco) / fecha / página
+  const logo = await logoRedondoPdf();
+  const total = doc.getNumberOfPages();
+  for (let n = 1; n <= total; n++) {
+    doc.setPage(n);
+    const y0 = 10, alto = 25, an = W - 2 * M;
+    color(VINO, 'f'); doc.roundedRect(M, y0, an, alto, 3, 3, 'F');
+    if (logo) doc.addImage(logo, 'PNG', M + 5, y0 + 2.5, 20, 20);
+    const xt = M + 30;
+    letra(14, true); doc.setTextColor(255, 255, 255); doc.text('HOJA DE VIDA DE CÁMARA CCTV', xt, y0 + 10, { charSpace: 0.2 });
+    letra(9.5, false); doc.setTextColor(250, 235, 238); doc.text('Departamento de Seguridad', xt, y0 + 15.5);
+    letra(8.2, false); doc.setTextColor(225, 190, 198);
+    doc.text([r.id, d.dependencia, d.areaZona].filter(function(x) { return !vacio(x); }).join(' · '), xt, y0 + 20, { maxWidth: an - 30 - 48 });
+    const xe = M + an - 44, xv = M + an - 27;
+    [['Código', '________'], ['Versión', '____'], ['Fecha', fechaHoy], ['Página', n + ' de ' + total]].forEach(function(f, i) {
+      const yy = y0 + 6.6 + i * 4.6;
+      letra(8.2, false); doc.setTextColor(225, 190, 198); doc.text(f[0], xe, yy);
+      letra(8.2, true); doc.setTextColor(255, 255, 255); doc.text(f[1], xv, yy);
+    });
+    letra(7.5, false); doc.setTextColor(136, 136, 136);
+    doc.text('Generado desde el Inventario CCTV el ' + fechaHoy + ' a las ' + hora12(hoy.getHours(), hoy.getMinutes()) + ' · Clínica Reina Catalina', W / 2, H - 6, { align: 'center' });
+  }
 
   return { blob: doc.output('blob'), nombre: 'Hoja de vida ' + r.id + '.pdf' };
 }
