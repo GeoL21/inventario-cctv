@@ -1829,18 +1829,8 @@ async function pdfHojaDeVida() {
 
   try {
     const pdf = await construirPdfHV(r);
-    const archivo = new File([pdf.blob], pdf.nombre, { type: 'application/pdf' });
-
-    // En el celular se abre "Compartir" (WhatsApp, correo, Archivos…); en el PC se descarga
-    if (navigator.canShare && navigator.canShare({ files: [archivo] }) && window.innerWidth < 1024) {
-      try {
-        await navigator.share({ files: [archivo], title: pdf.nombre });
-      } catch (e) {
-        if (e.name !== 'AbortError') descargarBlob(pdf.blob, pdf.nombre);
-      }
-    } else {
-      descargarBlob(pdf.blob, pdf.nombre);
-    }
+    // Se descarga directo, en el celular y en el PC (queda en Descargas para compartirlo desde ahí)
+    descargarBlob(pdf.blob, pdf.nombre);
   } catch (e) {
     sonarError();
     toast('error', e.message, 6000);

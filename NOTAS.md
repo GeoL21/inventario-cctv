@@ -46,7 +46,7 @@ El registro se hace desde celulares. Al jefe de monitoreo le pidieron la hoja de
 - En las clínicas la torre vacía o "No aplica" sale como "Falta: Torre" (aparte de los 8 puntos) y hay filtro "Sin torre" en Buscar.
 - Lo que falta sale en rojo; "Completar lo que falta" guarda en el celular sin señal (pendiente tipo
   `actualizar`, que usa la acción `actualizar` del servidor solo con esos campos).
-- Botón PDF: se arma en el celular con jsPDF (`lib/`), con la foto de la cámara (acción `foto` del servidor, guardada en el celular como `foto:ID`); se comparte en el celular y se descarga en el PC.
+- Botón PDF: se arma en el celular con jsPDF (`lib/`), con la foto de la cámara (acción `foto` del servidor, guardada en el celular como `foto:ID`); se descarga directo en el celular y en el PC (19 nov 2026, a pedido de Jorge).
 
 ## Reglas que no se cambian
 - Los cambios no deben romper la app ni la base de datos existente.
