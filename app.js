@@ -210,6 +210,8 @@ function ordenNivel(nivel) {
  * texto, fecha, area. paso: en qué paso del registro va.
  */
 const IP_ANALOGA = 'No aplica (análoga)';
+// Cámaras que no traen etiqueta con modelo ni serial (revisadas desarmándolas): cuenta como completo
+const SIN_ETIQUETA = 'Sin etiqueta';
 
 const CAMPOS = [
   { k: 'sede', l: 'Sede', t: 'seg', o: ['Barranquilla', 'Baranoa'], req: true, paso: 1, secc: 'Dónde está' },
@@ -227,8 +229,8 @@ const CAMPOS = [
 
   { k: 'tipoCamara', l: 'Tipo de cámara', t: 'seg', o: LISTA_TIPOS_CAMARA, req: true, paso: 2, secc: 'La cámara' },
   { k: 'marca', l: 'Marca', t: 'texto', ph: 'Hikvision, Dahua', lista: 'listaMarcas', paso: 2, secc: 'La cámara' },
-  { k: 'modelo', l: 'Modelo', t: 'texto', paso: 2, secc: 'La cámara' },
-  { k: 'serial', l: 'Serial', t: 'texto', paso: 2, secc: 'La cámara', mayus: true },
+  { k: 'modelo', l: 'Modelo', t: 'texto', paso: 2, secc: 'La cámara', atajo: SIN_ETIQUETA },
+  { k: 'serial', l: 'Serial', t: 'texto', paso: 2, secc: 'La cámara', mayus: true, atajo: SIN_ETIQUETA },
   { k: 'visionNocturna', l: 'Visión nocturna', t: 'chips', o: SI_NO, paso: 2, secc: 'Funciones' },
   { k: 'audio', l: 'Audio', t: 'chips', o: SI_NO, paso: 2, secc: 'Funciones' },
   // Las cámaras análogas (Turbo HD, van a un DVR por coaxial) no tienen IP
@@ -761,7 +763,7 @@ function validarRegistro() {
 
 async function serialAceptado(serial) {
   const buscado = limpiarSerial(serial);
-  if (!buscado) return true;
+  if (!buscado || igual(serial, SIN_ETIQUETA)) return true;
 
   let donde = '';
 
@@ -1088,7 +1090,8 @@ const FILTROS = [
   ['completa', 'Hoja de vida completa', function(r) { return avanceHV(datosDe(r)).pct === 100; }],
   ['sintorre', 'Sin torre', function(r) { return faltaTorre(datosDe(r)); }],
   ['sinservicio', 'Sin servicio', function(r) { return vacio(datosDe(r).dependencia); }],
-  ['cablenovisible', 'Cableado no visible', function(r) { return igual(datosDe(r).estadoCableado, 'No visible'); }]
+  ['cablenovisible', 'Cableado no visible', function(r) { return igual(datosDe(r).estadoCableado, 'No visible'); }],
+  ['sinetiqueta', 'Sin etiqueta', function(r) { const d = datosDe(r); return igual(d.serial, SIN_ETIQUETA) || igual(d.modelo, SIN_ETIQUETA); }]
 ];
 
 function claseFila(r) {

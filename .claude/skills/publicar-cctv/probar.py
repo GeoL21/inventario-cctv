@@ -115,6 +115,13 @@ with sync_playwright() as p:
             fallas.append('sin señal: el mantenimiento no quedó pendiente')
         pg.click('button[data-accion="editarCampo"][data-k="modelo"]'); pg.wait_for_timeout(300)
         pg.fill('#c_modelo', 'DS-PRUEBA'); pg.click('[data-accion="guardarCompletar"]'); pg.wait_for_timeout(1200)
+        # Serial "Sin etiqueta" (cámaras sin etiqueta): ficha atajo y cuenta como completo
+        pg.click('button[data-accion="editarCampo"][data-k="serial"]'); pg.wait_for_timeout(300)
+        pg.screenshot(path=SALIDA + '/serial_sin_etiqueta.png')
+        pg.click('[data-campo="serial"][data-valor="Sin etiqueta"]'); pg.wait_for_timeout(200)
+        pg.click('[data-accion="guardarCompletar"]'); pg.wait_for_timeout(1200)
+        if 'Sin etiqueta' not in pg.inner_text('body'):
+            fallas.append('el serial "Sin etiqueta" no quedó guardado')
         SIN_SENAL[0] = False; ctx.set_offline(False)
         pg.evaluate("window.dispatchEvent(new Event('online'))"); pg.wait_for_timeout(2500)
         if 'todo subido' not in pg.inner_text('#franjaTexto'):

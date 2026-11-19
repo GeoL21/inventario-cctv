@@ -42,6 +42,8 @@ El registro se hace desde celulares. Al jefe de monitoreo le pidieron la hoja de
 - Al publicar una versión nueva, la app muestra "Hay una versión nueva · Actualizar" (controllerchange del service worker).
 - Cableado acepta "No visible" (18 nov 2026): va dentro del cielo raso y no se ve sin desmontar la cámara; cuenta como completo
   (el servidor ya lo cuenta como revisado) y hay filtro "Cableado no visible" en Buscar para revisarlas cuando se baje la cámara.
+- Modelo y Serial aceptan "Sin etiqueta" (19 nov 2026): turret Hikvision que no traen etiqueta ni desarmándolas; cuenta como completo,
+  no dispara el aviso de serial repetido y hay filtro "Sin etiqueta" en Buscar (por si luego se saca el dato del NVR o con SADP).
 - IP acepta "No aplica (análoga)" (cámaras Turbo HD que van a un DVR) y cuenta como completo.
 - En las clínicas la torre vacía o "No aplica" sale como "Falta: Torre" (aparte de los 8 puntos) y hay filtro "Sin torre" en Buscar.
 - Lo que falta sale en rojo; "Completar lo que falta" guarda en el celular sin señal (pendiente tipo
